@@ -194,6 +194,108 @@ def render_section(page, DIRS):
             st.table(resumen.sort_values("REF. PENDIENTES", ascending=False))
         st.divider()
 
+    # --- LOGICA UNIDADES CORTADAS ---
+    elif page == "Unidades cortadas" and df_v is not None:
+        # Asegurar que FECHA CREACIÓN sea datetime antes de filtrar
+        if "FECHA CREACIÓN" in df_v.columns:
+            df_v["FECHA CREACIÓN"] = pd.to_datetime(
+                df_v["FECHA CREACIÓN"], errors="coerce"
+            )
+
+        st.subheader("Filtros")
+        c1, c2, c3 = st.columns(3)
+
+        s_marca = get_opts(df_v["MARCA"], "[Sin Marca]")
+        s_linea = (
+            get_opts(df_v["LINEA"], "[Sin Linea]") if "LINEA" in df_v else pd.Series()
+        )
+
+        # Obtener nombres de meses válidos
+        if "FECHA CREACIÓN" in df_v.columns:
+            s_mes = df_v["FECHA CREACIÓN"].dt.month_name().fillna("[Sin Fecha]")
+        else:
+            s_mes = pd.Series()
+
+        f_marca = c1.multiselect("Marca", sorted(s_marca.unique().tolist()))
+        f_linea = c2.multiselect("Línea", sorted(s_linea.unique().tolist()))
+        f_mes = c3.multiselect("Mes", sorted(s_mes.unique().tolist()))
+
+        mask = pd.Series(True, index=df_v.index)
+        if f_marca:
+            mask &= s_marca.isin(f_marca)
+        if f_linea:
+            mask &= s_linea.isin(f_linea)
+        if f_mes:
+            mask &= s_mes.isin(f_mes)
+        df_f = df_v[mask].copy()
+
+        num_cols = df_f.select_dtypes(include=["number"]).columns.tolist()
+        val_col = (
+            "CANT. PLANEADA"
+            if "CANT. PLANEADA" in num_cols
+            else (num_cols[0] if num_cols else None)
+        )
+
+        if val_col and not df_f.empty:
+            st.divider()
+
+            # 1. Columnas Apiladas
+            if "LINEA" in df_f.columns:
+                df_wip = df_f.groupby(["LINEA", "MARCA"])[val_col].sum().reset_index()
+                st.plotly_chart(
+                    px.bar(
+                        df_wip,
+                        x="LINEA",
+                        y=val_col,
+                        color="MARCA",
+                        barmode="stack",
+                        title=f"WIP: {val_col} por Línea",
+                    ),
+                    use_container_width=True,
+                )
+
+            # 2. Productividad Diaria (Corregido)
+            if "FECHA CREACIÓN" in df_f.columns:
+                # Eliminar nulos para la línea de tiempo
+                df_temp = df_f.dropna(subset=["FECHA CREACIÓN"])
+                if not df_temp.empty:
+                    df_daily = (
+                        df_temp.groupby(df_temp["FECHA CREACIÓN"].dt.date)[val_col]
+                        .sum()
+                        .reset_index()
+                    )
+                    df_daily.columns = [
+                        "FECHA",
+                        "CANTIDAD",
+                    ]  # Renombrar para evitar conflictos
+                    st.plotly_chart(
+                        px.line(
+                            df_daily,
+                            x="FECHA",
+                            y="CANTIDAD",
+                            markers=True,
+                            title="Productividad Diaria (Unidades Cortadas)",
+                        ),
+                        use_container_width=True,
+                    )
+                else:
+                    st.info("No hay fechas válidas para mostrar productividad.")
+
+            # 3. Treemap
+            if "TIPO DE MATERIAL" in df_f.columns:
+                df_tree = df_f.groupby("TIPO DE MATERIAL")[val_col].sum().reset_index()
+                st.plotly_chart(
+                    px.treemap(
+                        df_tree,
+                        path=["TIPO DE MATERIAL"],
+                        values=val_col,
+                        title="Distribución por Material",
+                    ),
+                    use_container_width=True,
+                )
+        else:
+            st.warning("Sin datos numéricos o filtros demasiado estrictos.")
+
     up, view = st.columns([1, 3])
     with up:
         st.subheader("Subir XLS")

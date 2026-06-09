@@ -48,10 +48,22 @@ def etl_pendientes(df):
 
 def etl_cortadas(df):
     df = base_clean(df)
+    # Limpiar Mes y Marca igual que Pendientes
+    if "MES" in df.columns:
+        df["MES"] = df["MES"].apply(clean_txt)
+    if "MARCA" in df.columns:
+        df["MARCA"] = df["MARCA"].apply(clean_txt)
+
     if "FECHA CREACIÓN" in df.columns:
         df["FECHA CREACIÓN"] = pd.to_datetime(
             df["FECHA CREACIÓN"], errors="coerce", dayfirst=True
         )
+
+    # Asegurar números
+    for c in ["CANT. PLANEADA", "CANT. ORDENADA", "CANT. COMPLETA"]:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
+
     if "DESC. DETALLE EXT. 2" in df.columns:
         df["DESC. DETALLE EXT. 2"] = df["DESC. DETALLE EXT. 2"].astype(str).str.strip()
     return df
