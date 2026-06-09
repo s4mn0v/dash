@@ -12,13 +12,13 @@ def normalize_cols(df):
 
 def clean_data_values(df, filename):
     if "MARCA" not in df.columns:
-        if "STOP" in filename.upper():
-            df["MARCA"] = "STOP"
-        elif "YOYO" in filename.upper():
-            df["MARCA"] = "YOYO"
-        else:
-            df["MARCA"] = "DESCONOCIDO"
-
+        df["MARCA"] = (
+            "STOP"
+            if "STOP" in filename.upper()
+            else "YOYO"
+            if "YOYO" in filename.upper()
+            else "DESCONOCIDO"
+        )
     for col in df.columns:
         if df[col].dtype == "object":
             df[col] = df[col].apply(
@@ -28,7 +28,6 @@ def clean_data_values(df, filename):
                     else x
                 )
             )
-
     num_cols = [
         "CANT. PLANEADA",
         "CANT. ORDENADA",
@@ -39,7 +38,6 @@ def clean_data_values(df, filename):
     for c in num_cols:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).round(0).astype(int)
-
     date_cols = ["FECHA TERMINACIÓN", "FECHA CREACIÓN", "FECHA APROBACIÓN"]
     for c in date_cols:
         if c in df.columns:
@@ -57,14 +55,12 @@ def get_consolidated_df(path):
         df = normalize_cols(df)
         df = clean_data_values(df, f)
         all_dfs.append(df)
-    return pd.concat(all_dfs, axis=0, ignore_index=True).loc[
-        :, ~pd.concat(all_dfs, axis=0, ignore_index=True).columns.duplicated()
-    ]
+    res = pd.concat(all_dfs, axis=0, ignore_index=True)
+    return res.loc[:, ~res.columns.duplicated()]
 
 
 def base_clean(df):
     df.columns = [re.sub(r"\s+", " ", str(c).strip().upper()) for c in df.columns]
-    # Forzar remoción de tildes para evitar error
     df.columns = [c.replace("Ó", "O").replace("É", "E") for c in df.columns]
     return df.loc[:, ~df.columns.duplicated()]
 

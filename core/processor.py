@@ -3,29 +3,29 @@ import pandas as pd
 from core.etl import base_clean, clean_txt
 
 
-# core/processor.py
 def etl_entrega(df, fname):
     df = base_clean(df)
-    # Homologar + Limpiar (TRIM)
-    df.columns = [c.replace("COLECCION", "COLECCIÓN") for c in df.columns]
+    targets = {
+        "DESC. EXTENSIÓN 1": "COLOR_NOMBRE",
+        "DETALLE EXT. 1": "COLOR_NOMBRE",
+        "COLECCION": "COLECCIÓN",
+    }
+    df = df.rename(columns=targets)
     for c in ["REFERENCIA", "O.P. NÚMERO", "GRUPO DE ENTREGA"]:
         if c in df.columns:
             df[c] = df[c].astype(str).str.strip()
-
-    # Marca col
     df["MARCA"] = "STOP" if "STOP" in fname.upper() else "YOYO"
-
-    # Num conversion
-    for c in ["CANT. ORDENADA", "CANT. COMPLETA", "CANT. PENDIENTE"]:
+    for c in ["CANT. PLANEADA", "CANT. ORDENADA", "CANT. COMPLETA", "CANT. PENDIENTE"]:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
-
-    # New Cols
-    df["CUMPLIMIENTO_%"] = (df["CANT. COMPLETA"] / df["CANT. ORDENADA"]).fillna(0)
-    df["ESTATUS_OP"] = df["CANT. PENDIENTE"].apply(
-        lambda x: "INCOMPLETO" if x > 0 else "CERRADO"
+    df["ESTADO_PEDIDO"] = df.apply(
+        lambda r: (
+            "TERMINADO"
+            if r.get("CANT. PENDIENTE", 0) == 0
+            else ("EN PROCESO" if r.get("CANT. COMPLETA", 0) > 0 else "SIN INICIAR")
+        ),
+        axis=1,
     )
-
     return df
 
 
