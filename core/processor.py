@@ -54,9 +54,9 @@ def etl_cortadas(df):
     if "MARCA" in df.columns:
         df["MARCA"] = df["MARCA"].apply(clean_txt)
 
-    if "FECHA CREACIÓN" in df.columns:
-        df["FECHA CREACIÓN"] = pd.to_datetime(
-            df["FECHA CREACIÓN"], errors="coerce", dayfirst=True
+    if "FECHA CREACION" in df.columns:
+        df["FECHA CREACION"] = pd.to_datetime(
+            df["FECHA CREACION"], errors="coerce", dayfirst=True
         )
 
     # Asegurar números

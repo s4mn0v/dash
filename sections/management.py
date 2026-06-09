@@ -196,10 +196,10 @@ def render_section(page, DIRS):
 
     # --- LOGICA UNIDADES CORTADAS ---
     elif page == "Unidades cortadas" and df_v is not None:
-        # Asegurar que FECHA CREACIÓN sea datetime antes de filtrar
-        if "FECHA CREACIÓN" in df_v.columns:
-            df_v["FECHA CREACIÓN"] = pd.to_datetime(
-                df_v["FECHA CREACIÓN"], errors="coerce"
+        # 1. Asegurar tipos de datos antes de filtrar
+        if "FECHA CREACION" in df_v.columns:
+            df_v["FECHA CREACION"] = pd.to_datetime(
+                df_v["FECHA CREACION"], errors="coerce", dayfirst=True
             )
 
         st.subheader("Filtros")
@@ -209,12 +209,8 @@ def render_section(page, DIRS):
         s_linea = (
             get_opts(df_v["LINEA"], "[Sin Linea]") if "LINEA" in df_v else pd.Series()
         )
-
-        # Obtener nombres de meses válidos
-        if "FECHA CREACIÓN" in df_v.columns:
-            s_mes = df_v["FECHA CREACIÓN"].dt.month_name().fillna("[Sin Fecha]")
-        else:
-            s_mes = pd.Series()
+        # USAR COLUMNA MES DIRECTAMENTE (YA LIMPIA)
+        s_mes = get_opts(df_v["MES"], "[Sin Mes]") if "MES" in df_v else pd.Series()
 
         f_marca = c1.multiselect("Marca", sorted(s_marca.unique().tolist()))
         f_linea = c2.multiselect("Línea", sorted(s_linea.unique().tolist()))
@@ -229,17 +225,20 @@ def render_section(page, DIRS):
             mask &= s_mes.isin(f_mes)
         df_f = df_v[mask].copy()
 
+        # Buscar columna numérica (Prioridad: ORDENADA > PLANEADA > COMPLETA)
         num_cols = df_f.select_dtypes(include=["number"]).columns.tolist()
-        val_col = (
-            "CANT. PLANEADA"
-            if "CANT. PLANEADA" in num_cols
-            else (num_cols[0] if num_cols else None)
-        )
+        val_col = None
+        for c in ["CANT. ORDENADA", "CANT. PLANEADA", "CANT. COMPLETA"]:
+            if c in num_cols:
+                val_col = c
+                break
+        if not val_col and num_cols:
+            val_col = num_cols[0]
 
         if val_col and not df_f.empty:
             st.divider()
 
-            # 1. Columnas Apiladas
+            # 1. Columnas Apiladas (WIP)
             if "LINEA" in df_f.columns:
                 df_wip = df_f.groupby(["LINEA", "MARCA"])[val_col].sum().reset_index()
                 st.plotly_chart(
@@ -254,27 +253,25 @@ def render_section(page, DIRS):
                     use_container_width=True,
                 )
 
-            # 2. Productividad Diaria (Corregido)
-            if "FECHA CREACIÓN" in df_f.columns:
-                # Eliminar nulos para la línea de tiempo
-                df_temp = df_f.dropna(subset=["FECHA CREACIÓN"])
+            # 2. Productividad Diaria
+            if "FECHA CREACION" in df_f.columns:
+                df_temp = df_f.dropna(subset=["FECHA CREACION"])
                 if not df_temp.empty:
                     df_daily = (
-                        df_temp.groupby(df_temp["FECHA CREACIÓN"].dt.date)[val_col]
+                        df_temp.groupby(df_temp["FECHA CREACION"].dt.date)[val_col]
                         .sum()
                         .reset_index()
                     )
-                    df_daily.columns = [
-                        "FECHA",
-                        "CANTIDAD",
-                    ]  # Renombrar para evitar conflictos
+                    df_daily.columns = ["FECHA", "CANTIDAD"]
+                    df_daily = df_daily.sort_values("FECHA")
+
                     st.plotly_chart(
                         px.line(
                             df_daily,
                             x="FECHA",
                             y="CANTIDAD",
                             markers=True,
-                            title="Productividad Diaria (Unidades Cortadas)",
+                            title=f"Productividad Diaria ({val_col})",
                         ),
                         use_container_width=True,
                     )
@@ -294,7 +291,7 @@ def render_section(page, DIRS):
                     use_container_width=True,
                 )
         else:
-            st.warning("Sin datos numéricos o filtros demasiado estrictos.")
+            st.warning("Sin datos numéricos o filtros vacíos.")
 
     up, view = st.columns([1, 3])
     with up:
