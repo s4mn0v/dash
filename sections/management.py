@@ -105,6 +105,7 @@ def render_section(page, DIRS):
                 df_crit.sort_values("CANT. PENDIENTE", ascending=False).head(10),
                 use_container_width=True,
             )
+        st.divider()
 
     up, view = st.columns([1, 3])
     with up:
