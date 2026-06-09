@@ -1,0 +1,411 @@
+===== FILE: /home/zam/code/WILSON/dash/public/js/app.js =====
+let RAW = [],
+  filtered = [],
+  chart = null;
+
+async function init() {
+  const res = await fetch("/api/data");
+  RAW = await res.json();
+  applyFilters();
+  setupNav();
+}
+
+function setupNav() {
+  document.querySelectorAll(".nav-item").forEach((btn) => {
+    btn.onclick = (e) => {
+      document
+        .querySelectorAll(".nav-item, .view")
+        .forEach((el) => el.classList.remove("active"));
+      const view = e.target.dataset.view;
+      e.target.classList.add("active");
+      document.getElementById("v-" + view).classList.add("active");
+      document.getElementById("view-title").textContent = e.target.textContent;
+    };
+  });
+}
+
+function applyFilters() {
+  const marca = document.getElementById("f-marca").value;
+  const q = document.getElementById("search").value.toLowerCase();
+
+  filtered = RAW.filter((d) => {
+    return (
+      (!marca || d.marca === marca) &&
+      (!q || d.mop.toLowerCase().includes(q) || d.ref.toLowerCase().includes(q))
+    );
+  });
+
+  renderKPIs();
+  renderTables();
+  renderChart();
+}
+
+function renderKPIs() {
+  const plan = filtered.reduce((s, d) => s + d.plan, 0);
+  const comp = filtered.reduce((s, d) => s + d.comp, 0);
+  const html = `
+        <div class="kpi"><h3>MOPs</h3><p>${filtered.length}</p></div>
+        <div class="kpi"><h3>Planeado</h3><p>${Math.round(plan).toLocaleString()}</p></div>
+        <div class="kpi"><h3>Cortado</h3><p>${Math.round(comp).toLocaleString()}</p></div>
+        <div class="kpi"><h3>% Efic.</h3><p>${plan ? Math.round((comp / plan) * 100) : 0}%</p></div>
+    `;
+  document.getElementById("kpis").innerHTML = html;
+}
+
+function renderTables() {
+  // Entrega Real Table
+  const entrega = RAW.filter((d) => d.section === "entrega");
+  const entBody = document.querySelector("#t-entrega tbody");
+  entBody.innerHTML = filtered
+    .slice(0, 20)
+    .map(
+      (d) => `
+        <tr><td>${d.grupo_ent}</td><td>${d.mop}</td><td>${d.plan}</td><td>${d.comp}</td></tr>
+    `,
+    )
+    .join("");
+
+  // WIP Table
+  const wipBody = document.querySelector("#t-wip tbody");
+  wipBody.innerHTML = filtered
+    .filter((d) => d.estado === "Aprobado")
+    .slice(0, 20)
+    .map(
+      (d) => `
+        <tr><td>${d.mop}</td><td>${d.ref}</td><td>PROCESO</td></tr>
+    `,
+    )
+    .join("");
+}
+
+function renderChart() {
+  const ctx = document.getElementById("chartUC").getContext("2d");
+  if (chart) chart.destroy();
+
+  const meses = [...new Set(filtered.map((d) => d.mes))].sort();
+  chart = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels: meses,
+      datasets: [
+        {
+          label: "Unidades",
+          data: meses.map((m) =>
+            filtered.filter((d) => d.mes === m).reduce((s, d) => s + d.comp, 0),
+          ),
+          backgroundColor: "#1f56c8",
+        },
+      ],
+    },
+  });
+}
+
+async function upload() {
+  const fileInput = document.getElementById("up-file");
+  const sec = document.getElementById("up-sec").value;
+  const files = fileInput.files;
+
+  if (files.length === 0) return;
+
+  const fd = new FormData();
+  fd.append("section", sec);
+
+  // Append all files to same key
+  for (let i = 0; i < files.length; i++) {
+    fd.append("files", files[i]);
+  }
+
+  const res = await fetch("/api/upload", {
+    method: "POST",
+    body: fd,
+  });
+
+  if (res.ok) {
+    alert("CARGA EXITOSA");
+    location.reload();
+  }
+}
+init();
+
+
+===== FILE: /home/zam/code/WILSON/dash/public/css/style.css =====
+:root {
+    --bg: #f0f2f5;
+    --side: #1a1d23;
+    --accent: #1f56c8;
+    --white: #fff;
+}
+* {
+    box-sizing: border-box;
+    margin: 0;
+    font-family: sans-serif;
+}
+body {
+    background: var(--bg);
+    overflow: hidden;
+}
+.app {
+    display: flex;
+    height: 100vh;
+}
+.sidebar {
+    width: 220px;
+    background: var(--side);
+    color: #fff;
+    padding: 20px;
+}
+.nav-item {
+    width: 100%;
+    padding: 12px;
+    background: none;
+    border: none;
+    color: #9198a8;
+    text-align: left;
+    cursor: pointer;
+    border-radius: 6px;
+    margin-bottom: 5px;
+    text-transform: uppercase;
+    font-weight: bold;
+    letter-spacing: 1px;
+}
+.nav-item.active {
+    background: var(--accent);
+    color: #fff;
+}
+.content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+}
+.top-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+.view {
+    display: none;
+}
+.view.active {
+    display: block;
+}
+.kpi-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 15px;
+    margin-bottom: 20px;
+}
+.kpi {
+    background: var(--white);
+    padding: 20px;
+    border-radius: 10px;
+    box-shadow: 0 2px 5px #0001;
+}
+.card {
+    background: var(--white);
+    padding: 20px;
+    border-radius: 10px;
+    margin-bottom: 20px;
+}
+.card h3 {
+    border-bottom: 2px solid var(--accent);
+    padding-bottom: 10px;
+    margin-bottom: 15px;
+}
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+th {
+    text-align: left;
+    padding: 10px;
+    background: #f8f9fa;
+}
+td {
+    padding: 10px;
+    border-top: 1px solid #eee;
+}
+
+
+===== FILE: /home/zam/code/WILSON/dash/public/index.html =====
+<!doctype html>
+<html lang="es">
+    <head>
+        <meta charset="UTF-8" />
+        <title>Control Tower 2026</title>
+        <link rel="stylesheet" href="css/style.css" />
+        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    </head>
+    <body>
+        <div class="app">
+            <aside class="sidebar">
+                <div class="nav-item active" data-view="dash">DASHBOARD</div>
+                <div class="nav-item" data-view="entrega">ENTREGA REAL</div>
+                <div class="nav-item" data-view="pending">PENDIENTES</div>
+                <div class="nav-item" data-view="cut">CORTADAS</div>
+                <div class="nav-item" data-view="wip">WIP</div>
+                <div class="nav-item" data-view="files">SUBIR ARCHIVOS</div>
+            </aside>
+
+            <main class="content">
+                <header class="top-bar">
+                    <h1 id="view-title">Resumen General</h1>
+                    <div class="filters">
+                        <select id="f-marca" onchange="applyFilters()">
+                            <option value="">Todas Marcas</option>
+                            <option value="STOP">STOP</option>
+                            <option value="YOYO">YOYO</option>
+                        </select>
+                        <input
+                            type="text"
+                            id="search"
+                            placeholder="MOP/Ref..."
+                            oninput="applyFilters()"
+                        />
+                    </div>
+                </header>
+
+                <section id="v-resumen" class="view active">
+                    <div class="kpi-row" id="kpis"></div>
+                    <div class="card"><canvas id="chartUC"></canvas></div>
+                </section>
+
+                <section id="v-entrega" class="view">
+                    <div class="card">
+                        <table id="t-entrega">
+                            <thead></thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section id="v-pending" class="view">
+                    <div class="card">
+                        <table id="t-pending">
+                            <thead></thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section id="v-wip" class="view">
+                    <div class="card">
+                        <table id="t-wip">
+                            <thead></thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section id="v-files" class="view">
+                    <div class="card">
+                        <h3>CARGAR XLS</h3>
+                        <select id="up-sec">
+                            <option value="entrega">ENTREGA REAL</option>
+                            <option value="pending">PENDIENTES</option>
+                            <option value="cut">CORTADAS</option>
+                            <option value="wip">WIP</option>
+                        </select>
+                        <!-- MULTIPLE attribute added -->
+                        <input
+                            type="file"
+                            id="up-file"
+                            accept=".xls"
+                            multiple
+                        />
+                        <button onclick="upload()">ENVIAR</button>
+                    </div>
+                </section>
+            </main>
+        </div>
+        <script src="js/app.js"></script>
+    </body>
+</html>
+
+
+===== FILE: /home/zam/code/WILSON/dash/go.mod =====
+module dash
+
+go 1.26.2
+
+require github.com/extrame/xls v0.0.1
+
+require github.com/extrame/ole2 v0.0.0-20160812065207-d69429661ad7 // indirect
+
+
+===== FILE: /home/zam/code/WILSON/dash/go.sum =====
+github.com/extrame/ole2 v0.0.0-20160812065207-d69429661ad7 h1:n+nk0bNe2+gVbRI8WRbLFVwwcBQ0rr5p+gzkKb6ol8c=
+github.com/extrame/ole2 v0.0.0-20160812065207-d69429661ad7/go.mod h1:GPpMrAfHdb8IdQ1/R2uIRBsNfnPnwsYE9YYI5WyY1zw=
+github.com/extrame/xls v0.0.1 h1:jI7L/o3z73TyyENPopsLS/Jlekm3nF1a/kF5hKBvy/k=
+github.com/extrame/xls v0.0.1/go.mod h1:iACcgahst7BboCpIMSpnFs4SKyU9ZjsvZBfNbUxZOJI=
+
+
+===== FILE: /home/zam/code/WILSON/dash/main.go =====
+package main
+
+import (
+	"encoding/json"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strconv"
+
+	"github.com/extrame/xls"
+)
+
+type Row struct {
+	MOP string  `json:"mop"`
+	Val float64 `json:"val"`
+	Sec string  `json:"section"`
+}
+
+func uploadHandler(res http.ResponseWriter, req *http.Request) {
+	req.ParseMultipartForm(50 << 20) // 50MB
+	form := req.MultipartForm
+	files := form.File["files"]
+	sec := req.FormValue("section")
+
+	for _, head := range files {
+		file, _ := head.Open()
+		path := filepath.Join("data", sec, head.Filename)
+		out, _ := os.Create(path)
+		io.Copy(out, file)
+		file.Close()
+		out.Close()
+	}
+	res.Write([]byte("ok"))
+}
+
+func dataHandler(res http.ResponseWriter, req *http.Request) {
+	secs := []string{"entrega", "pending", "cut", "wip"}
+	var all []Row
+	for _, s := range secs {
+		files, _ := filepath.Glob(filepath.Join("data", s, "*.xls"))
+		for _, f := range files {
+			xl, _ := xls.Open(f, "utf-8")
+			sheet := xl.GetSheet(0)
+			for i := 1; i <= int(sheet.MaxRow); i++ {
+				r := sheet.Row(i)
+				v, _ := strconv.ParseFloat(r.Col(8), 64)
+				all = append(all, Row{MOP: r.Col(0), Val: v, Sec: s})
+			}
+		}
+	}
+	json.NewEncoder(res).Encode(all)
+}
+
+func main() {
+	dirs := []string{"data/entrega", "data/pending", "data/cut", "data/wip"}
+	for _, d := range dirs {
+		os.MkdirAll(d, 0755)
+	}
+
+	http.HandleFunc("/api/upload", uploadHandler)
+	http.HandleFunc("/api/data", dataHandler)
+	http.Handle("/", http.FileServer(http.Dir("./public")))
+	http.ListenAndServe(":8080", nil)
+}
+
+

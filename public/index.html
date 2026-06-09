@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="es">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>CONTROL TOWER 2026</title>
+        <link rel="stylesheet" href="css/style.css" />
+        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    </head>
+    <body>
+        <div class="app">
+            <aside class="sidebar">
+                <div
+                    style="
+                        font-weight: 900;
+                        margin-bottom: 30px;
+                        font-size: 18px;
+                        letter-spacing: 2px;
+                    "
+                >
+                    TOWER v2.0
+                </div>
+                <nav id="nav-btns">
+                    <button class="nav-item active" data-view="resumen">
+                        Dashboard
+                    </button>
+                    <button class="nav-item" data-view="entrega">
+                        Entrega Real
+                    </button>
+                    <button class="nav-item" data-view="pending">
+                        Pendientes
+                    </button>
+                    <button class="nav-item" data-view="cut">Cortadas</button>
+                    <button class="nav-item" data-view="wip">WIP</button>
+                    <button class="nav-item" data-view="files">
+                        Subir Archivos
+                    </button>
+                </nav>
+            </aside>
+
+            <main class="content">
+                <header class="top-bar">
+                    <h1
+                        id="view-title"
+                        style="font-size: 22px; font-weight: 800"
+                    >
+                        DASHBOARD
+                    </h1>
+                    <div class="header-actions">
+                        <button class="btn-refresh" onclick="init()">
+                            RECARGAR DATOS
+                        </button>
+                        <div class="filters">
+                            <select id="f-marca" onchange="applyFilters()">
+                                <option value="">TODAS MARCAS</option>
+                                <option value="STOP">STOP</option>
+                                <option value="YOYO">YOYO</option>
+                            </select>
+                            <input
+                                type="text"
+                                id="search"
+                                placeholder="MOP / REFERENCIA..."
+                                oninput="applyFilters()"
+                            />
+                        </div>
+                    </div>
+                </header>
+
+                <section id="v-resumen" class="view active">
+                    <div class="kpi-row" id="kpis"></div>
+                    <div class="card">
+                        <div class="chart-container">
+                            <canvas id="chartUC"></canvas>
+                        </div>
+                    </div>
+                </section>
+
+                <section id="v-entrega" class="view">
+                    <div class="card">
+                        <h3>DETALLE ENTREGA REAL</h3>
+                        <table id="t-entrega">
+                            <thead>
+                                <tr>
+                                    <th>MES</th>
+                                    <th>MOP</th>
+                                    <th>PLANEADO</th>
+                                    <th>COMPLETO</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section id="v-pending" class="view">
+                    <div class="card">
+                        <h3>REFERENCIAS PENDIENTES</h3>
+                        <table id="t-pending">
+                            <thead>
+                                <tr>
+                                    <th>MOP</th>
+                                    <th>REF</th>
+                                    <th>CANT PENDIENTE</th>
+                                    <th>ESTADO</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section id="v-cut" class="view">
+                    <div class="card">
+                        <h3>HISTORIAL CORTES</h3>
+                        <table id="t-cut">
+                            <thead>
+                                <tr>
+                                    <th>MOP</th>
+                                    <th>REF</th>
+                                    <th>CANT CORTADA</th>
+                                    <th>ESTADO</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section id="v-wip" class="view">
+                    <div class="card">
+                        <h3>WORK IN PROGRESS</h3>
+                        <table id="t-wip">
+                            <thead>
+                                <tr>
+                                    <th>MOP</th>
+                                    <th>REF</th>
+                                    <th>PROCESO</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section id="v-files" class="view">
+                    <div class="card" style="max-width: 500px">
+                        <h3>CARGAR NUEVOS ARCHIVOS XLS</h3>
+                        <div
+                            style="
+                                display: flex;
+                                flex-direction: column;
+                                gap: 15px;
+                            "
+                        >
+                            <label
+                                style="
+                                    font-size: 10px;
+                                    font-weight: 800;
+                                    color: var(--text-sec);
+                                "
+                                >DESTINO</label
+                            >
+                            <select id="up-sec" style="padding: 12px">
+                                <option value="entrega">ENTREGA REAL</option>
+                                <option value="pending">PENDIENTES</option>
+                                <option value="cut">CORTADAS</option>
+                                <option value="wip">WIP</option>
+                            </select>
+                            <label
+                                style="
+                                    font-size: 10px;
+                                    font-weight: 800;
+                                    color: var(--text-sec);
+                                "
+                                >SELECCIONAR ARCHIVOS</label
+                            >
+                            <input
+                                type="file"
+                                id="up-file"
+                                accept=".xls"
+                                multiple
+                                style="font-size: 12px"
+                            />
+                            <button
+                                onclick="upload()"
+                                style="
+                                    background: var(--accent);
+                                    color: #fff;
+                                    border: none;
+                                    padding: 15px;
+                                    border-radius: 8px;
+                                    font-weight: 800;
+                                    cursor: pointer;
+                                    margin-top: 10px;
+                                "
+                            >
+                                SUBIR A SERVIDOR
+                            </button>
+                        </div>
+                    </div>
+                </section>
+            </main>
+        </div>
+        <script src="js/app.js"></script>
+    </body>
+</html>
