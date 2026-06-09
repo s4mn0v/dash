@@ -15,14 +15,39 @@ DIRS = {
 for d in DIRS.values():
     os.makedirs(d, exist_ok=True)
 
-st.set_page_config(layout="wide", page_title="Control Tower 2026")
+st.set_page_config(layout="wide", page_title="Dash")
 
 with st.sidebar:
+    # Título fuera del componente
+    st.markdown("# Dash")
+
     page = option_menu(
-        "Control Tower",
-        ["Dashboard"] + list(DIRS.keys()),
+        menu_title=None,  # Elimina la caja de título interna
+        options=[
+            "Dashboard",
+            "Grupo Entrega Real",
+            "Referencias Pendientes",
+            "Unidades cortadas",
+            "WIP",
+        ],
         icons=["chart-bar", "truck", "list-check", "scissors", "gear"],
         default_index=0,
+        styles={
+            "container": {
+                "padding": "0!important",
+                "background-color": "transparent",
+                "border": "none",
+            },
+            "icon": {"color": "white", "font-size": "18px"},
+            "nav-link": {
+                "font-size": "14px",
+                "text-align": "left",
+                "margin": "0px",
+                "border-radius": "8px",
+                "--hover-color": "#333",
+            },
+            "nav-link-selected": {"background-color": "#FF4B4B"},
+        },
     )
 
 if page == "Dashboard":

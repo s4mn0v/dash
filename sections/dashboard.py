@@ -42,7 +42,7 @@ def _hex_pct(pct):
 
 
 def render_dashboard(DIRS):
-    st.title("Control Tower")
+    st.title("Dash")
 
     # ── Carga ───────────────────────────────────────────────────────
     df_e = get_consolidated_df(DIRS["Grupo Entrega Real"])
@@ -385,5 +385,3 @@ def render_dashboard(DIRS):
             st.info("Columna de fecha de terminación no encontrada.")
     else:
         st.info("Sin datos de entregas para calcular O.P. críticas.")
-
-    st.divider()
