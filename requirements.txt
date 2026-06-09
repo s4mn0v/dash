@@ -2,3 +2,5 @@ pandas
 plotly
 streamlit
 streamlit-option-menu
+xlrd
+openpyxl

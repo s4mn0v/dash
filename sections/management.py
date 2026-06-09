@@ -119,26 +119,26 @@ def render_section(page, DIRS):
     # --- LOGICA REFERENCIAS PENDIENTES ---
     elif page == "Referencias Pendientes" and df_v is not None:
         st.subheader("Filtros")
-        c1, c2, c3 = st.columns(3)
+        c1, c2, c3, c4 = st.columns(4)
+
         s_marca = get_opts(df_v["MARCA"], "[Sin Marca]")
         s_mat = (
             get_opts(df_v["TIPO DE MATERIAL"], "[Sin Material]")
             if "TIPO DE MATERIAL" in df_v
             else pd.Series()
         )
+        # Cambio a Mes_Limpio
         s_mes = get_opts(df_v["MES"], "[Sin Mes]") if "MES" in df_v else pd.Series()
+        s_prio = (
+            get_opts(df_v["PRIORIDAD"], "Normal")
+            if "PRIORIDAD" in df_v
+            else pd.Series()
+        )
 
         f_marca = c1.multiselect("Marca", sorted(s_marca.unique().tolist()))
-        f_mat = (
-            c2.multiselect("Tipo de Material", sorted(s_mat.unique().tolist()))
-            if not s_mat.empty
-            else []
-        )
-        f_mes = (
-            c3.multiselect("Mes", sorted(s_mes.unique().tolist()))
-            if not s_mes.empty
-            else []
-        )
+        f_mat = c2.multiselect("Tipo de Material", sorted(s_mat.unique().tolist()))
+        f_mes = c3.multiselect("Mes Limpio", sorted(s_mes.unique().tolist()))
+        f_prio = c4.multiselect("Prioridad", sorted(s_prio.unique().tolist()))
 
         mask = pd.Series(True, index=df_v.index)
         if f_marca:
@@ -147,6 +147,8 @@ def render_section(page, DIRS):
             mask &= s_mat.isin(f_mat)
         if f_mes:
             mask &= s_mes.isin(f_mes)
+        if f_prio:
+            mask &= s_prio.isin(f_prio)
         df_f = df_v[mask]
 
         st.divider()
