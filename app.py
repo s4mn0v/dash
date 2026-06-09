@@ -5,6 +5,7 @@ from streamlit_option_menu import option_menu
 
 from sections.dashboard import render_dashboard
 from sections.management import render_section
+from sections.storage import render_storage
 
 DIRS = {
     "Grupo Entrega Real": "data/group-delivered",
@@ -29,8 +30,9 @@ with st.sidebar:
             "Referencias Pendientes",
             "Unidades cortadas",
             "WIP",
+            "Gestión de Archivos",
         ],
-        icons=["chart-bar", "truck", "list-check", "scissors", "gear"],
+        icons=["chart-bar", "truck", "list-check", "scissors", "gear", "folder2-open"],
         default_index=0,
         styles={
             "container": {
@@ -52,5 +54,7 @@ with st.sidebar:
 
 if page == "Dashboard":
     render_dashboard(DIRS)
+elif page == "Gestión de Archivos":
+    render_storage(DIRS)
 else:
     render_section(page, DIRS)
