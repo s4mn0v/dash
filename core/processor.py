@@ -11,20 +11,25 @@ def etl_entrega(df, fname):
         "COLECCION": "COLECCIÓN",
     }
     df = df.rename(columns=targets)
-    for c in ["REFERENCIA", "O.P. NÚMERO", "GRUPO DE ENTREGA"]:
-        if c in df.columns:
+
+    # Strip total: quita espacios invisibles en TODAS las columnas de texto
+    for c in df.columns:
+        if df[c].dtype == "object":
             df[c] = df[c].astype(str).str.strip()
-    df["MARCA"] = "STOP" if "STOP" in fname.upper() else "YOYO"
-    for c in ["CANT. PLANEADA", "CANT. ORDENADA", "CANT. COMPLETA", "CANT. PENDIENTE"]:
+
+    # Marca al inicio
+    marca = "STOP" if "STOP" in fname.upper() else "YOYO"
+    if "MARCA" in df.columns:
+        df = df.drop(columns=["MARCA"])
+    df.insert(0, "MARCA", marca)
+
+    for c in ["CANT. ORDENADA", "CANT. COMPLETA", "CANT. PENDIENTE"]:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
-    df["ESTADO_PEDIDO"] = df.apply(
-        lambda r: (
-            "TERMINADO"
-            if r.get("CANT. PENDIENTE", 0) == 0
-            else ("EN PROCESO" if r.get("CANT. COMPLETA", 0) > 0 else "SIN INICIAR")
-        ),
-        axis=1,
+
+    df["CUMPLIMIENTO %"] = (df["CANT. COMPLETA"] / df["CANT. ORDENADA"]).fillna(0)
+    df["ESTATUS OP"] = df["CANT. PENDIENTE"].apply(
+        lambda x: "INCOMPLETO" if x > 0 else "CERRADO"
     )
     return df
 
