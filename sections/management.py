@@ -17,6 +17,15 @@ def render_section(page, DIRS):
         st.session_state[key] = get_consolidated_df(path)
     df_v = st.session_state[key]
 
+    def get_opts(series, label):
+        s = (
+            series.astype(str)
+            .str.strip()
+            .replace(["nan", "None", "", "NaN", "<NA>"], pd.NA)
+        )
+        s = s.apply(lambda x: re.sub(r"^\d+\s*-\s*", "", str(x)) if pd.notna(x) else x)
+        return s.fillna(label)
+
     if page == "Grupo Entrega Real" and df_v is not None:
         st.subheader("Filtros")
         c1, c2, c3, c4 = st.columns(4)
@@ -105,6 +114,82 @@ def render_section(page, DIRS):
                 df_crit.sort_values("CANT. PENDIENTE", ascending=False).head(10),
                 use_container_width=True,
             )
+        st.divider()
+
+    # --- LOGICA REFERENCIAS PENDIENTES ---
+    elif page == "Referencias Pendientes" and df_v is not None:
+        st.subheader("Filtros")
+        c1, c2, c3 = st.columns(3)
+        s_marca = get_opts(df_v["MARCA"], "[Sin Marca]")
+        s_mat = (
+            get_opts(df_v["TIPO DE MATERIAL"], "[Sin Material]")
+            if "TIPO DE MATERIAL" in df_v
+            else pd.Series()
+        )
+        s_mes = get_opts(df_v["MES"], "[Sin Mes]") if "MES" in df_v else pd.Series()
+
+        f_marca = c1.multiselect("Marca", sorted(s_marca.unique().tolist()))
+        f_mat = (
+            c2.multiselect("Tipo de Material", sorted(s_mat.unique().tolist()))
+            if not s_mat.empty
+            else []
+        )
+        f_mes = (
+            c3.multiselect("Mes", sorted(s_mes.unique().tolist()))
+            if not s_mes.empty
+            else []
+        )
+
+        mask = pd.Series(True, index=df_v.index)
+        if f_marca:
+            mask &= s_marca.isin(f_marca)
+        if f_mat:
+            mask &= s_mat.isin(f_mat)
+        if f_mes:
+            mask &= s_mes.isin(f_mes)
+        df_f = df_v[mask]
+
+        st.divider()
+        chart_col1, chart_col2 = st.columns(2)
+
+        if "TIPO DE MATERIAL" in df_f.columns:
+            df_mat = (
+                df_f.groupby(["TIPO DE MATERIAL", "MARCA"])
+                .size()
+                .reset_index(name="CANTIDAD")
+            )
+            chart_col1.plotly_chart(
+                px.bar(
+                    df_mat,
+                    x="TIPO DE MATERIAL",
+                    y="CANTIDAD",
+                    color="MARCA",
+                    title="Pendientes por Material",
+                ),
+                use_container_width=True,
+            )
+
+        if "TIPO DE LINEA" in df_f.columns:
+            df_linea = df_f["TIPO DE LINEA"].value_counts().reset_index()
+            chart_col2.plotly_chart(
+                px.pie(
+                    df_linea,
+                    values="count",
+                    names="TIPO DE LINEA",
+                    hole=0.5,
+                    title="Distribución por Línea",
+                ),
+                use_container_width=True,
+            )
+
+        st.subheader("Resumen por Grupo de Entrega")
+        if "GRUPO DE ENTREGA" in df_f.columns:
+            resumen = (
+                df_f.groupby("GRUPO DE ENTREGA")
+                .size()
+                .reset_index(name="REF. PENDIENTES")
+            )
+            st.table(resumen.sort_values("REF. PENDIENTES", ascending=False))
         st.divider()
 
     up, view = st.columns([1, 3])
