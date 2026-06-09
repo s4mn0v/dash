@@ -82,6 +82,87 @@ def get_consolidated_df(path):
     return final.loc[:, ~final.columns.duplicated()]
 
 
+# --- ETL HELPERS ---
+def base_clean(df):
+    df.columns = [re.sub(r"\s+", " ", str(c).strip().upper()) for c in df.columns]
+    df = df.loc[:, ~df.columns.duplicated()]
+    return df
+
+
+def clean_txt(val):
+    if pd.isna(val):
+        return val
+    # Remove "001 - " prefix and trim
+    return re.sub(r"^\d+\s*-\s*", "", str(val)).strip().upper()
+
+
+# --- SPECIFIC ETL LOGIC ---
+def etl_entrega(df, fname):
+    df = base_clean(df)
+    # Homologate Color col
+    target_cols = ["DESC. EXTENSIÓN 1", "DETALLE EXT. 1"]
+    for c in target_cols:
+        if c in df.columns:
+            df = df.rename(columns={c: "COLOR_NOMBRE"})
+
+    # Trim key cols
+    for c in ["REFERENCIA", "GRUPO DE ENTREGA"]:
+        if c in df.columns:
+            df[c] = df[c].astype(str).str.strip()
+
+    # Inject Marca
+    if "STOP" in fname.upper():
+        df["MARCA"] = "STOP"
+    else:
+        df["MARCA"] = "YOYO"
+
+    # Numeric conversion
+    for c in ["CANT. PLANEADA", "CANT. COMPLETA", "CANT. PENDIENTE"]:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
+
+    # Estado Pedido
+    def calc_estado(row):
+        if row.get("CANT. PENDIENTE", 0) == 0:
+            return "TERMINADO"
+        if row.get("CANT. COMPLETA", 0) > 0:
+            return "EN PROCESO"
+        return "SIN INICIAR"
+
+    df["ESTADO_PEDIDO"] = df.apply(calc_estado, axis=1)
+    return df
+
+
+def etl_pendientes(df):
+    df = base_clean(df)
+    # Clean MES (007 - JULIO → JULIO)
+    if "MES" in df.columns:
+        df["MES"] = df["MES"].apply(clean_txt)
+
+    # Clean Marca
+    if "MARCA" in df.columns:
+        df["MARCA"] = df["MARCA"].apply(clean_txt)
+
+    # Drop empty rows (require Referencia)
+    df = df.dropna(subset=["REFERENCIA"])
+    return df
+
+
+def etl_cortadas(df):
+    df = base_clean(df)
+    # Date format
+    if "FECHA CREACIÓN" in df.columns:
+        df["FECHA CREACIÓN"] = pd.to_datetime(
+            df["FECHA CREACIÓN"], errors="coerce", dayfirst=True
+        )
+
+    # Trim Tallas
+    if "DESC. DETALLE EXT. 2" in df.columns:
+        df["DESC. DETALLE EXT. 2"] = df["DESC. DETALLE EXT. 2"].astype(str).str.strip()
+
+    return df
+
+
 # --- SIDEBAR ---
 with st.sidebar:
     page = option_menu(
@@ -156,7 +237,6 @@ else:
     st.title(page)
     path = DIRS[page]
 
-    # State management
     state_key = f"df_cache_{page}"
     if state_key not in st.session_state:
         st.session_state[state_key] = get_consolidated_df(path)
@@ -165,16 +245,17 @@ else:
     with up_col:
         st.subheader("Subir XLS")
         files = st.file_uploader(
-            "Arrastre archivos",
+            "Archivos",
             type=["xls", "xlsx"],
             accept_multiple_files=True,
             key=f"u_{page}",
         )
+
         if st.button("Procesar y Guardar"):
             for f in files:
                 df_raw = pd.read_excel(f)
-                df_raw = normalize_cols(df_raw)
-                # Forward Fill Logic
+
+                # 1. Aplicar Forward Fill (Base)
                 excl = [
                     "MES ADELANTO",
                     "GRUPO DE ENTREGA",
@@ -183,13 +264,21 @@ else:
                 ]
                 fill_cols = [c for c in df_raw.columns if c not in excl]
                 df_raw[fill_cols] = df_raw[fill_cols].ffill()
-                # Save
+
+                # 2. Aplicar Lógica Específica según la página
+                if page == "Grupo Entrega Real":
+                    df_raw = etl_entrega(df_raw, f.name)
+                elif page == "Referencias Pendientes":
+                    df_raw = etl_pendientes(df_raw)
+                elif page == "Unidades cortadas":
+                    df_raw = etl_cortadas(df_raw)
+                else:
+                    df_raw = normalize_cols(df_raw)
+
+                # 3. Guardar
                 name = f.name.rsplit(".", 1)[0] + ".csv"
                 df_raw.to_csv(os.path.join(path, name), index=False)
-            st.session_state[state_key] = get_consolidated_df(path)
-            st.rerun()
 
-        if st.button("Actualizar Vista ↻"):
             st.session_state[state_key] = get_consolidated_df(path)
             st.rerun()
 
