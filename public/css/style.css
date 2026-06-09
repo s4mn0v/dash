@@ -53,6 +53,7 @@ body {
     background: #2d323e;
     color: #fff;
 }
+
 .nav-item.active {
     background: var(--accent);
     color: #fff;
@@ -87,6 +88,7 @@ body {
     font-weight: 700;
     cursor: pointer;
 }
+
 .btn-refresh:hover {
     background: var(--accent);
     color: #fff;
@@ -104,6 +106,7 @@ body {
 .view {
     display: none;
 }
+
 .view.active {
     display: block;
 }
@@ -115,6 +118,7 @@ body {
     gap: 12px;
     margin-bottom: 25px;
 }
+
 .kpi-card {
     background: var(--white);
     padding: 18px;
@@ -122,6 +126,7 @@ body {
     border: 1px solid var(--border);
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
 }
+
 .kpi-label {
     font-size: 10px;
     font-weight: 800;
@@ -129,12 +134,14 @@ body {
     text-transform: uppercase;
     margin-bottom: 10px;
 }
+
 .kpi-value {
     font-size: 26px;
     font-weight: 800;
     line-height: 1;
     margin-bottom: 6px;
 }
+
 .kpi-sub {
     font-size: 11px;
     color: #5a6070;
@@ -144,15 +151,19 @@ body {
 .text-blue {
     color: #1558b0;
 }
+
 .text-red {
     color: #c0392b;
 }
+
 .text-amber {
     color: #b45c0a;
 }
+
 .text-purple {
     color: #5e35b1;
 }
+
 .text-dark {
     color: #1a1d23;
 }
@@ -163,7 +174,11 @@ body {
     border-radius: 12px;
     border: 1px solid var(--border);
     margin-bottom: 20px;
+    overflow-x: auto;
+    overflow-y: auto;
+    max-height: 800px;
 }
+
 .card h3 {
     font-size: 12px;
     font-weight: 800;
@@ -175,9 +190,11 @@ body {
 
 table {
     width: 100%;
-    border-collapse: collapse;
+    border-collapse: separate;
+    border-spacing: 0;
     font-size: 12px;
 }
+
 th {
     text-align: left;
     padding: 12px;
@@ -187,6 +204,7 @@ th {
     font-size: 10px;
     font-weight: 800;
 }
+
 td {
     padding: 12px;
     border-top: 1px solid #f0f0f0;
@@ -194,5 +212,33 @@ td {
 
 .chart-container {
     height: 350px;
+    position: relative;
+}
+
+thead th {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: #f8f9fa;
+    border-bottom: 2px solid var(--border);
+    padding: 12px;
+}
+
+/* Zebra striping for large data */
+tbody tr:nth-child(even) {
+    background: #fafbfc;
+}
+
+tbody tr:hover {
+    background: #f1f4f9;
+}
+
+/* Container for tables with internal scroll */
+.table-container {
+    height: calc(100vh - 280px);
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #fff;
     position: relative;
 }

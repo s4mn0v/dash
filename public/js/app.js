@@ -105,57 +105,75 @@ function renderKPIs() {
 }
 
 function renderTables() {
-  // Entrega
+  // 1. ENTREGA REAL
   const entBody = document.querySelector("#t-entrega tbody");
   const entData = filtered.filter((d) => d.section === "entrega");
   entBody.innerHTML = entData.length
     ? entData
-        .slice(0, 50)
         .map(
           (d) => `
-        <tr><td>${fmt(d.mes, false)}</td><td>${d.mop}</td><td>${fmt(d.plan)}</td><td>${fmt(d.comp)}</td></tr>
+        <tr>
+            <td>${fmt(d.mes, false)}</td>
+            <td>${d.mop}</td>
+            <td>${fmt(d.plan)}</td>
+            <td>${fmt(d.comp)}</td>
+        </tr>
     `,
         )
         .join("")
     : "<tr><td colspan='4'>N/A - SIN DATOS</td></tr>";
 
-  // Pending
+  // 2. PENDING (FIXED HEADERS)
   const pendBody = document.querySelector("#t-pending tbody");
   const pendData = filtered.filter((d) => d.section === "pending");
   pendBody.innerHTML = pendData.length
     ? pendData
-        .slice(0, 50)
         .map(
           (d) => `
-        <tr><td>${d.mop}</td><td>${d.ref}</td><td>${fmt(d.pend)}</td><td>PENDIENTE</td></tr>
+        <tr>
+            <td>${fmt(d.mes, false)}</td>
+            <td>${fmt(d.grupo_ent, false)}</td>
+            <td>${fmt(d.marca, false)}</td>
+            <td>${fmt(d.tipo_linea, false)}</td>
+            <td style="font-weight:bold;">${fmt(d.ref, false)}</td>
+            <td>${fmt(d.desc_item, false)}</td>
+            <td class="text-red" style="font-weight:bold;">${fmt(d.pend)}</td>
+        </tr>
     `,
         )
         .join("")
-    : "<tr><td colspan='4'>N/A - SIN DATOS</td></tr>";
+    : "<tr><td colspan='7'>N/A - SIN DATOS</td></tr>";
 
-  // Cut
+  // 3. CUT (CORTADAS)
   const cutBody = document.querySelector("#t-cut tbody");
   const cutData = filtered.filter((d) => d.section === "cut");
   cutBody.innerHTML = cutData.length
     ? cutData
-        .slice(0, 50)
         .map(
           (d) => `
-        <tr><td>${d.mop}</td><td>${d.ref}</td><td>${fmt(d.comp)}</td><td>CORTE OK</td></tr>
+        <tr>
+            <td>${d.mop}</td>
+            <td>${d.ref}</td>
+            <td class="text-blue" style="font-weight:bold;">${fmt(d.comp)}</td>
+            <td>CORTE OK</td>
+        </tr>
     `,
         )
         .join("")
     : "<tr><td colspan='4'>N/A - SIN DATOS</td></tr>";
 
-  // WIP
+  // 4. WIP
   const wipBody = document.querySelector("#t-wip tbody");
   const wipData = filtered.filter((d) => d.section === "wip");
   wipBody.innerHTML = wipData.length
     ? wipData
-        .slice(0, 50)
         .map(
           (d) => `
-        <tr><td>${d.mop}</td><td>${d.ref}</td><td>PROCESO</td></tr>
+        <tr>
+            <td>${d.mop}</td>
+            <td>${d.ref}</td>
+            <td class="text-amber">PROCESO</td>
+        </tr>
     `,
         )
         .join("")

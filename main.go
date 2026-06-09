@@ -15,18 +15,23 @@ import (
 )
 
 type Row struct {
-	MOP     string  `json:"mop"`
-	Marca   string  `json:"marca"`
-	Ref     string  `json:"ref"`
-	Mes     string  `json:"mes"`
-	Plan    float64 `json:"plan"`
-	Comp    float64 `json:"comp"`
-	Pend    float64 `json:"pend"`
-	Section string  `json:"section"`
+	MOP       string  `json:"mop"`
+	Marca     string  `json:"marca"`
+	Ref       string  `json:"ref"`
+	Mes       string  `json:"mes"`
+	Plan      float64 `json:"plan"`
+	Comp      float64 `json:"comp"`
+	Pend      float64 `json:"pend"`
+	Section   string  `json:"section"`
+	MesAdel   string  `json:"mes_adel"`
+	GrupoEnt  string  `json:"grupo_ent"`
+	TipoLinea string  `json:"tipo_linea"`
+	TipoMat   string  `json:"tipo_mat"`
+	DescItem  string  `json:"desc_item"`
 }
 
 func uploadHandler(res http.ResponseWriter, req *http.Request) {
-	req.ParseMultipartForm(100 << 20) // 100MB
+	req.ParseMultipartForm(100 << 20)
 	form := req.MultipartForm
 	files := form.File["files"]
 	sec := req.FormValue("section")
@@ -46,7 +51,6 @@ func uploadHandler(res http.ResponseWriter, req *http.Request) {
 		file.Close()
 		out.Close()
 	}
-	res.Header().Set("Content-Type", "text/plain")
 	res.Write([]byte("ok"))
 }
 
@@ -59,7 +63,6 @@ func dataHandler(res http.ResponseWriter, req *http.Request) {
 		for _, f := range files {
 			xl, err := xls.Open(f, "utf-8")
 			if err != nil {
-				log.Printf("Fail open %s: %v", f, err)
 				continue
 			}
 			sheet := xl.GetSheet(0)
@@ -80,20 +83,15 @@ func dataHandler(res http.ResponseWriter, req *http.Request) {
 				if r == nil {
 					continue
 				}
-
 				p, _ := strconv.ParseFloat(r.Col(8), 64)
 				c, _ := strconv.ParseFloat(r.Col(10), 64)
 				pe, _ := strconv.ParseFloat(r.Col(11), 64)
 
 				all = append(all, Row{
-					MOP:     r.Col(0),
-					Marca:   marca,
-					Ref:     r.Col(1),
-					Mes:     r.Col(3),
-					Plan:    p,
-					Comp:    c,
-					Pend:    pe,
-					Section: s,
+					MOP: r.Col(0), Marca: marca, Ref: r.Col(6),
+					Mes: r.Col(0), MesAdel: r.Col(1), GrupoEnt: r.Col(2),
+					TipoLinea: r.Col(4), TipoMat: r.Col(5), DescItem: r.Col(7),
+					Plan: p, Comp: c, Pend: pe, Section: s,
 				})
 			}
 		}
@@ -112,6 +110,6 @@ func main() {
 	http.HandleFunc("/api/data", dataHandler)
 	http.Handle("/", http.FileServer(http.Dir("./public")))
 
-	fmt.Println("Server ready → http://localhost:8080")
+	fmt.Println("Server: http://localhost:8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
