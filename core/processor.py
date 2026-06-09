@@ -67,3 +67,37 @@ def etl_cortadas(df):
     if "DESC. DETALLE EXT. 2" in df.columns:
         df["DESC. DETALLE EXT. 2"] = df["DESC. DETALLE EXT. 2"].astype(str).str.strip()
     return df
+
+
+def etl_wip(df, fname):
+    df = base_clean(df)
+
+    # 1. Marca/Mes/Material (STOP/YOYO/DENIM)
+    cols_clean = ["MARCA", "MES", "TIPO DE MATERIAL"]
+    for c in cols_clean:
+        if c in df.columns:
+            df[c] = df[c].apply(clean_txt)
+
+    # 2. Extraer Talla (T-14, T-TU)
+    if "ITEM O.P. RESUMEN" in df.columns:
+        df["TALLA"] = df["ITEM O.P. RESUMEN"].str.extract(r"(T-.*)$")[0].str.strip()
+
+    # 3. Fechas y Números
+    if "FECHA DE ENTREGA TELAS" in df.columns:
+        df["FECHA DE ENTREGA TELAS"] = pd.to_datetime(
+            df["FECHA DE ENTREGA TELAS"], errors="coerce", dayfirst=True
+        )
+
+    for c in ["CANT. ORDENADA", "CANT. COMPLETA", "CANT. PENDIENTE"]:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
+
+    # 4. Aging + Avance
+    now = pd.Timestamp.now().normalize()
+    df["DIAS_TALLER"] = (now - df["FECHA DE ENTREGA TELAS"]).dt.days.fillna(0)
+    df["CRITICIDAD"] = df["DIAS_TALLER"].apply(
+        lambda d: "NORMAL" if d <= 7 else ("ATENCION" if d <= 14 else "CRITICO")
+    )
+    df["AVANCE_%"] = (df["CANT. COMPLETA"] / df["CANT. ORDENADA"] * 100).fillna(0)
+
+    return df

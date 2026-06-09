@@ -43,7 +43,7 @@ def render_dashboard(DIRS):
         )
         c1.plotly_chart(fig)
 
-    st.subheader("⚠️ Top 10 Críticos (Vencidos)")
+    st.subheader("Críticos (Vencidos) - 10 más recientes")
     if "FECHA TERMINACIÓN" in df_f.columns:
         df_crit = df_f[
             (df_f["FECHA TERMINACIÓN"] < pd.Timestamp.now())
