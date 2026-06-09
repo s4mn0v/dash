@@ -1,8 +1,10 @@
 import os
 import re
+from datetime import datetime
 
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 from streamlit_option_menu import option_menu
 
@@ -182,55 +184,62 @@ with st.sidebar:
 if page == "Dashboard":
     st.title("📊 Dashboard de Control")
     df_e = get_consolidated_df(DIRS["Grupo Entrega Real"])
-    df_p = get_consolidated_df(DIRS["Referencias Pendientes"])
 
     if df_e is not None:
-        # Filters
+        # Slicers
         marcas = df_e["MARCA"].unique()
-        sel_marca = st.sidebar.multiselect("Filtrar Marca", marcas, default=marcas)
-        df_f = df_e[df_e["MARCA"].isin(sel_marca)]
+        meses = df_e["MES"].unique() if "MES" in df_e.columns else []
 
-        # KPIs
-        c1, c2, c3, c4 = st.columns(4)
+        sel_marca = st.sidebar.multiselect("Marca", marcas, default=marcas)
+        sel_mes = st.sidebar.multiselect("Mes", meses, default=meses)
+
+        df_f = df_e[df_e["MARCA"].isin(sel_marca)]
+        if meses:
+            df_f = df_f[df_f["MES"].isin(sel_mes)]
+
+        # KPI Gauge
         total_ord = df_f["CANT. ORDENADA"].sum()
         total_com = df_f["CANT. COMPLETA"].sum()
-        c1.metric(
-            "Cumplimiento %",
-            f"{(total_com / total_ord * 100 if total_ord > 0 else 0):.1f}%",
+        pct = (total_com / total_ord * 100) if total_ord > 0 else 0
+
+        fig_g = go.Figure(
+            go.Indicator(
+                mode="gauge+number",
+                value=pct,
+                gauge={"axis": {"range": [0, 100]}, "bar": {"color": "#00CC96"}},
+                title={"text": "Cumplimiento Total %"},
+            )
         )
-        c2.metric("Pendiente Total", f"{df_f['CANT. PENDIENTE'].sum():,}")
-        c3.metric("MOPs Activos", len(df_f["O.P. NÚMERO"].unique()))
-        c4.metric("Backlog Pendiente", len(df_p) if df_p is not None else 0)
+        st.plotly_chart(fig_g, use_container_width=True)
 
         # Charts
-        col_l, col_r = st.columns(2)
-        fig1 = px.bar(
-            df_f.groupby("MES")[["CANT. ORDENADA", "CANT. COMPLETA"]]
-            .sum()
-            .reset_index(),
-            x="MES",
-            y=["CANT. ORDENADA", "CANT. COMPLETA"],
-            barmode="group",
-            title="Ordenado vs Entregado",
-        )
-        col_l.plotly_chart(fig1, use_container_width=True)
+        c1, c2 = st.columns(2)
 
-        fig2 = px.pie(
-            df_f,
-            values="CANT. COMPLETA",
-            names="MARCA",
-            title="Distribución por Marca",
-            hole=0.4,
-        )
-        col_r.plotly_chart(fig2, use_container_width=True)
+        # Bars: Ord vs Com por Colección
+        if "COLECCIÓN" in df_f.columns:
+            fig_b = px.bar(
+                df_f.groupby("COLECCIÓN")[["CANT. ORDENADA", "CANT. COMPLETA"]]
+                .sum()
+                .reset_index(),
+                x="COLECCIÓN",
+                y=["CANT. ORDENADA", "CANT. COMPLETA"],
+                barmode="group",
+            )
+            c1.plotly_chart(fig_b)
 
-        st.subheader("⚠️ Top 10 Críticos")
-        st.dataframe(
-            df_f.sort_values("CANT. PENDIENTE", ascending=False).head(10),
-            use_container_width=True,
-        )
+        # Table: Alerta Críticos (Fecha vencida + Pendiente)
+        st.subheader("⚠️ Top 10 Críticos (Vencidos)")
+        now = pd.Timestamp.now()
+        if "FECHA TERMINACIÓN" in df_f.columns:
+            df_crit = df_f[
+                (df_f["FECHA TERMINACIÓN"] < now) & (df_f["CANT. PENDIENTE"] > 0)
+            ]
+            st.dataframe(
+                df_crit.sort_values("CANT. PENDIENTE", ascending=False).head(10)
+            )
+
     else:
-        st.warning("Cargar datos en secciones para activar Dashboard.")
+        st.warning("No hay datos.")
 
 # --- SECTION PAGES ---
 else:
@@ -240,6 +249,70 @@ else:
     state_key = f"df_cache_{page}"
     if state_key not in st.session_state:
         st.session_state[state_key] = get_consolidated_df(path)
+
+    df_view = st.session_state[state_key]
+
+    if page == "Grupo Entrega Real" and df_view is not None:
+        # 1. SLICERS
+        st.subheader("Filtros")
+        c1, c2, c3, c4 = st.columns(4)
+
+        f_marca = c1.multiselect("Marca", df_view["MARCA"].unique())
+        f_mes = c2.multiselect(
+            "Mes", df_view["MES"].unique() if "MES" in df_view else []
+        )
+        f_coll = c3.multiselect(
+            "Colección", df_view["COLECCION"].unique() if "COLECCION" in df_view else []
+        )
+        f_grupo = c4.multiselect(
+            "Grupo Entrega",
+            df_view["GRUPO DE ENTREGA"].unique()
+            if "GRUPO DE ENTREGA" in df_view
+            else [],
+        )
+
+        # Filter Logic
+        mask = pd.Series(True, index=df_view.index)
+        if f_marca:
+            mask &= df_view["MARCA"].isin(f_marca)
+        if f_mes:
+            mask &= df_view["MES"].isin(f_mes)
+        if f_coll:
+            mask &= df_view["COLECCIÓN"].isin(f_coll)
+        if f_grupo:
+            mask &= df_view["GRUPO DE ENTREGA"].isin(f_grupo)
+        df_f = df_view[mask]
+        st.divider()
+
+        # 2. CHARTS
+        if "COLECCION" in df_f.columns and not df_f.empty:
+            fig_bar = px.bar(
+                df_f.groupby("COLECCION")[["CANT. ORDENADA", "CANT. COMPLETA"]]
+                .sum()
+                .reset_index(),
+                x="COLECCION",
+                y=["CANT. ORDENADA", "CANT. COMPLETA"],
+                barmode="group",
+                title="Ordenado vs Completo por Coleccion",
+            )
+            st.plotly_chart(fig_bar, use_container_width=True)
+        else:
+            st.warning("Columna 'COLECCIÓN' no encontrada o datos vacíos.")
+            st.write("Columnas detectadas:", list(df_f.columns))  # Debug
+
+        # 3. ALERTS
+        st.subheader("⚠️ O.P. Críticas (Vencidas + Pendientes)")
+        if "FECHA TERMINACIÓN" in df_f.columns:
+            today = pd.Timestamp.now().normalize()
+            df_crit = (
+                df_f[
+                    (df_f["FECHA TERMINACIÓN"] < today) & (df_f["CANT. PENDIENTE"] > 0)
+                ]
+                .sort_values("CANT. PENDIENTE", ascending=False)
+                .head(10)
+            )
+            st.dataframe(df_crit, use_container_width=True)
+            st.divider()
 
     up_col, view_col = st.columns([1, 3])
     with up_col:

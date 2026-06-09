@@ -64,6 +64,8 @@ def get_consolidated_df(path):
 
 def base_clean(df):
     df.columns = [re.sub(r"\s+", " ", str(c).strip().upper()) for c in df.columns]
+    # Forzar remoción de tildes para evitar error
+    df.columns = [c.replace("Ó", "O").replace("É", "E") for c in df.columns]
     return df.loc[:, ~df.columns.duplicated()]
 
 
