@@ -135,7 +135,7 @@ def render_section(page, DIRS):
                     barmode="group",
                     title="Ordenado vs Completo",
                 ),
-                use_container_width=True,
+                width="stretch",
             )
 
         st.subheader("O.P. Críticas")
@@ -153,7 +153,7 @@ def render_section(page, DIRS):
             df_crit = df_f[(df_f[col_fecha] < today) & (df_f["CANT. PENDIENTE"] > 0)]
             st.dataframe(
                 df_crit.sort_values("CANT. PENDIENTE", ascending=False).head(10),
-                use_container_width=True,
+                width="stretch",
             )
         st.divider()
 
@@ -209,7 +209,7 @@ def render_section(page, DIRS):
                     color="MARCA",
                     title="Pendientes por Material",
                 ),
-                use_container_width=True,
+                width="stretch",
             )
 
         if "TIPO DE LINEA" in df_f.columns:
@@ -222,7 +222,7 @@ def render_section(page, DIRS):
                     hole=0.5,
                     title="Distribución por Línea",
                 ),
-                use_container_width=True,
+                width="stretch",
             )
 
         st.subheader("Resumen por Grupo de Entrega")
@@ -240,7 +240,7 @@ def render_section(page, DIRS):
         # 1. Asegurar tipos de datos antes de filtrar
         if "FECHA CREACION" in df_v.columns:
             df_v["FECHA CREACION"] = pd.to_datetime(
-                df_v["FECHA CREACION"], errors="coerce", dayfirst=True
+                df_v["FECHA CREACION"], errors="coerce", format="mixed"
             )
 
         st.subheader("Filtros")
@@ -291,7 +291,7 @@ def render_section(page, DIRS):
                         barmode="stack",
                         title=f"WIP: {val_col} por Línea",
                     ),
-                    use_container_width=True,
+                    width="stretch",
                 )
 
             # 2. Productividad Diaria
@@ -314,7 +314,7 @@ def render_section(page, DIRS):
                             markers=True,
                             title=f"Productividad Diaria ({val_col})",
                         ),
-                        use_container_width=True,
+                        width="stretch",
                     )
                 else:
                     st.info("No hay fechas válidas para mostrar productividad.")
@@ -329,7 +329,7 @@ def render_section(page, DIRS):
                         values=val_col,
                         title="Distribución por Material",
                     ),
-                    use_container_width=True,
+                    width="stretch",
                 )
         else:
             st.warning("Sin datos numéricos o filtros vacíos.")
@@ -409,7 +409,7 @@ def render_section(page, DIRS):
                             "CRITICIDAD": ["NORMAL", "ATENCION", "CRITICO"]
                         },
                     ),
-                    use_container_width=True,
+                    width="stretch",
                 )
 
             # B. WIP Material
@@ -426,7 +426,7 @@ def render_section(page, DIRS):
                         values="CANT. PENDIENTE",
                         title="WIP Material",
                     ),
-                    use_container_width=True,
+                    width="stretch",
                 )
 
             # C. Carga
@@ -445,7 +445,7 @@ def render_section(page, DIRS):
                         orientation="h",
                         title="Top Carga",
                     ),
-                    use_container_width=True,
+                    width="stretch",
                 )
 
             # D. Tabla
@@ -455,7 +455,7 @@ def render_section(page, DIRS):
                 .sort_values("DIAS_TALLER", ascending=False)
                 .head(10)
             )
-            st.dataframe(df_zero, use_container_width=True)
+            st.dataframe(df_zero, width="stretch")
             st.divider()
 
     up, view = st.columns([1, 3])
@@ -498,6 +498,6 @@ def render_section(page, DIRS):
     with view:
         st.subheader("Vista de Datos")
         if st.session_state[key] is not None:
-            st.dataframe(st.session_state[key], use_container_width=True)
+            st.dataframe(st.session_state[key], width="stretch")
         else:
             st.info("Directorio vacío.")

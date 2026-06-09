@@ -180,7 +180,7 @@ def render_dashboard(DIRS):
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
     )
-    st.plotly_chart(fig_funnel, use_container_width=True)
+    st.plotly_chart(fig_funnel, width="stretch")
 
     st.divider()
 
@@ -196,7 +196,7 @@ def render_dashboard(DIRS):
         ):
             dw = df_wf.copy()
             dw["FECHA DE ENTREGA TELAS"] = pd.to_datetime(
-                dw["FECHA DE ENTREGA TELAS"], errors="coerce", dayfirst=True
+                dw["FECHA DE ENTREGA TELAS"], errors="coerce", format="mixed"
             )
             dw["DIAS"] = (pd.Timestamp.now() - dw["FECHA DE ENTREGA TELAS"]).dt.days
             dw["Antigüedad"] = dw["DIAS"].apply(
@@ -225,7 +225,7 @@ def render_dashboard(DIRS):
                 },
             )
             fig_wip.update_layout(margin=dict(t=10, b=10), height=260)
-            st.plotly_chart(fig_wip, use_container_width=True)
+            st.plotly_chart(fig_wip, width="stretch")
         else:
             st.info("Sin datos de WIP con fecha de entrega de telas.")
 
@@ -283,7 +283,7 @@ def render_dashboard(DIRS):
                 plot_bgcolor="rgba(0,0,0,0)",
                 paper_bgcolor="rgba(0,0,0,0)",
             )
-            st.plotly_chart(fig_mat, use_container_width=True)
+            st.plotly_chart(fig_mat, width="stretch")
         else:
             st.info("Sin datos de material disponibles.")
 
@@ -331,7 +331,7 @@ def render_dashboard(DIRS):
             plot_bgcolor="rgba(0,0,0,0)",
             paper_bgcolor="rgba(0,0,0,0)",
         )
-        st.plotly_chart(fig_grp, use_container_width=True)
+        st.plotly_chart(fig_grp, width="stretch")
     else:
         st.info("Sin datos de grupo de entrega.")
 
@@ -353,7 +353,7 @@ def render_dashboard(DIRS):
         )
         if fecha_col:
             dc[fecha_col] = pd.to_datetime(
-                dc[fecha_col], errors="coerce", dayfirst=True
+                dc[fecha_col], errors="coerce", format="mixed"
             )
             pend_col = "CANT. PENDIENTE" if "CANT. PENDIENTE" in dc.columns else None
             if pend_col:
@@ -377,7 +377,7 @@ def render_dashboard(DIRS):
                 cols_show = [c for c in cols_show if c in dc_crit.columns]
                 st.dataframe(
                     dc_crit[cols_show].sort_values(pend_col, ascending=False).head(10),
-                    use_container_width=True,
+                    width="stretch",
                 )
             else:
                 st.info("Columna CANT. PENDIENTE no encontrada en Grupo Entrega Real.")

@@ -56,7 +56,7 @@ def etl_cortadas(df):
 
     if "FECHA CREACION" in df.columns:
         df["FECHA CREACION"] = pd.to_datetime(
-            df["FECHA CREACION"], errors="coerce", dayfirst=True
+            df["FECHA CREACION"], errors="coerce", format="mixed"
         )
 
     # Asegurar números
@@ -85,7 +85,7 @@ def etl_wip(df, fname):
     # 3. Fechas y Números
     if "FECHA DE ENTREGA TELAS" in df.columns:
         df["FECHA DE ENTREGA TELAS"] = pd.to_datetime(
-            df["FECHA DE ENTREGA TELAS"], errors="coerce", dayfirst=True
+            df["FECHA DE ENTREGA TELAS"], errors="coerce", format="mixed"
         )
 
     for c in ["CANT. ORDENADA", "CANT. COMPLETA", "CANT. PENDIENTE"]:
