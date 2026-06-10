@@ -1,6 +1,5 @@
 import os
 import re
-from xxlimited import new
 
 import pandas as pd
 import plotly.express as px
@@ -8,6 +7,7 @@ import streamlit as st
 
 from core.etl import get_consolidated_df, normalize_cols
 from core.processor import etl_cortadas, etl_entrega, etl_pendientes, etl_wip
+from core.xlsx_export import download_xlsx_button
 
 # --- HELPER ORDEN ---
 MESES_ORD = [
@@ -30,11 +30,9 @@ def sort_df(df):
     if df is None or df.empty:
         return df
     s_cols = []
-    # 1. Orden Mes (Categorical)
     if "MES" in df.columns:
         df["MES"] = pd.Categorical(df["MES"], categories=MESES_ORD, ordered=True)
         s_cols.append("MES")
-    # 2. Orden MOP / Referencia
     for c in ["O.P. NUMERO", "O.P. NÚMERO", "REFERENCIA"]:
         if c in df.columns:
             s_cols.append(c)
@@ -47,7 +45,6 @@ def render_section(page, DIRS):
     path = DIRS[page]
     key = f"df_cache_{page}"
     if key not in st.session_state:
-        df = get_consolidated_df(path)
         st.session_state[key] = get_consolidated_df(path)
     df_v = st.session_state[key]
 
@@ -64,20 +61,6 @@ def render_section(page, DIRS):
         st.subheader("Filtros")
         c1, c2, c3, c4 = st.columns(4)
 
-        # Helper limpieza filtros
-        def get_opts(series, label):
-            s = (
-                series.astype(str)
-                .str.strip()
-                .replace(["nan", "None", "", "NaN", "<NA>"], pd.NA)
-            )
-            # Quitar prefijos 001- 002- para vista limpia
-            s = s.apply(
-                lambda x: re.sub(r"^\d+\s*-\s*", "", str(x)) if pd.notna(x) else x
-            )
-            return s.fillna(label)
-
-        # Preparar Series limpias para matching
         s_marca = get_opts(df_v["MARCA"], "[Sin Marca]")
         s_mes = get_opts(df_v["MES"], "[Sin Mes]") if "MES" in df_v else pd.Series()
 
@@ -87,14 +70,12 @@ def render_section(page, DIRS):
             else ("COLECCION" if "COLECCION" in df_v else None)
         )
         s_coll = get_opts(df_v[c_col], "[Sin Coleccion]") if c_col else pd.Series()
-
         s_grp = (
             get_opts(df_v["GRUPO DE ENTREGA"], "[Sin Grupo Entrega]")
             if "GRUPO DE ENTREGA" in df_v
             else pd.Series()
         )
 
-        # Render multiselects con sorted unique
         f_marca = c1.multiselect("Marca", sorted(s_marca.unique().tolist()))
         f_mes = (
             c2.multiselect("Mes", sorted(s_mes.unique().tolist()))
@@ -146,15 +127,29 @@ def render_section(page, DIRS):
         )
 
         if col_fecha in df_f.columns:
-            # Asegurar datetime
+            df_f = df_f.copy()
             df_f[col_fecha] = pd.to_datetime(df_f[col_fecha], errors="coerce")
-
             today = pd.Timestamp.now().normalize()
             df_crit = df_f[(df_f[col_fecha] < today) & (df_f["CANT. PENDIENTE"] > 0)]
-            st.dataframe(
-                df_crit.sort_values("CANT. PENDIENTE", ascending=False).head(10),
-                width="stretch",
+            df_crit_show = df_crit.sort_values("CANT. PENDIENTE", ascending=False).head(
+                10
             )
+            st.dataframe(df_crit_show, width="stretch")
+
+        st.divider()
+        st.subheader("Vista de Datos")
+        st.dataframe(df_f, width="stretch")
+
+        dl1, dl2, _ = st.columns([1.5, 1.5, 5])
+        with dl1:
+            download_xlsx_button(
+                df_f, "grupo_entrega_real.xlsx", "⬇ Exportar vista (XLSX)"
+            )
+        with dl2:
+            if col_fecha in df_f.columns:
+                download_xlsx_button(
+                    df_crit_show, "op_criticas.xlsx", "⬇ O.P. Críticas (XLSX)"
+                )
         st.divider()
 
     # --- LOGICA REFERENCIAS PENDIENTES ---
@@ -168,7 +163,6 @@ def render_section(page, DIRS):
             if "TIPO DE MATERIAL" in df_v
             else pd.Series()
         )
-        # Cambio a Mes_Limpio
         s_mes = get_opts(df_v["MES"], "[Sin Mes]") if "MES" in df_v else pd.Series()
         s_prio = (
             get_opts(df_v["PRIORIDAD"], "Normal")
@@ -231,13 +225,22 @@ def render_section(page, DIRS):
                 df_f.groupby("GRUPO DE ENTREGA")
                 .size()
                 .reset_index(name="REF. PENDIENTES")
+                .sort_values("REF. PENDIENTES", ascending=False)
             )
-            st.table(resumen.sort_values("REF. PENDIENTES", ascending=False))
+            st.table(resumen)
+
+        st.subheader("Vista de Datos")
+        st.dataframe(df_f, width="stretch")
+
+        dl1, _ = st.columns([2, 6])
+        with dl1:
+            download_xlsx_button(
+                df_f, "referencias_pendientes.xlsx", "⬇ Exportar vista (XLSX)"
+            )
         st.divider()
 
     # --- LOGICA UNIDADES CORTADAS ---
     elif page == "Unidades cortadas" and df_v is not None:
-        # 1. Asegurar tipos de datos antes de filtrar
         if "FECHA CREACION" in df_v.columns:
             df_v["FECHA CREACION"] = pd.to_datetime(
                 df_v["FECHA CREACION"], errors="coerce", format="mixed"
@@ -250,7 +253,6 @@ def render_section(page, DIRS):
         s_linea = (
             get_opts(df_v["LINEA"], "[Sin Linea]") if "LINEA" in df_v else pd.Series()
         )
-        # USAR COLUMNA MES DIRECTAMENTE (YA LIMPIA)
         s_mes = get_opts(df_v["MES"], "[Sin Mes]") if "MES" in df_v else pd.Series()
 
         f_marca = c1.multiselect("Marca", sorted(s_marca.unique().tolist()))
@@ -266,7 +268,6 @@ def render_section(page, DIRS):
             mask &= s_mes.isin(f_mes)
         df_f = df_v[mask].copy()
 
-        # Buscar columna numérica (Prioridad: ORDENADA > PLANEADA > COMPLETA)
         num_cols = df_f.select_dtypes(include=["number"]).columns.tolist()
         val_col = None
         for c in ["CANT. ORDENADA", "CANT. PLANEADA", "CANT. COMPLETA"]:
@@ -279,7 +280,6 @@ def render_section(page, DIRS):
         if val_col and not df_f.empty:
             st.divider()
 
-            # 1. Columnas Apiladas (WIP)
             if "LINEA" in df_f.columns:
                 df_wip = df_f.groupby(["LINEA", "MARCA"])[val_col].sum().reset_index()
                 st.plotly_chart(
@@ -294,7 +294,6 @@ def render_section(page, DIRS):
                     width="stretch",
                 )
 
-            # 2. Productividad Diaria
             if "FECHA CREACION" in df_f.columns:
                 df_temp = df_f.dropna(subset=["FECHA CREACION"])
                 if not df_temp.empty:
@@ -305,7 +304,6 @@ def render_section(page, DIRS):
                     )
                     df_daily.columns = ["FECHA", "CANTIDAD"]
                     df_daily = df_daily.sort_values("FECHA")
-
                     st.plotly_chart(
                         px.line(
                             df_daily,
@@ -319,7 +317,6 @@ def render_section(page, DIRS):
                 else:
                     st.info("No hay fechas válidas para mostrar productividad.")
 
-            # 3. Treemap
             if "TIPO DE MATERIAL" in df_f.columns:
                 df_tree = df_f.groupby("TIPO DE MATERIAL")[val_col].sum().reset_index()
                 st.plotly_chart(
@@ -333,11 +330,19 @@ def render_section(page, DIRS):
                 )
         else:
             st.warning("Sin datos numéricos o filtros vacíos.")
+
+        st.subheader("Vista de Datos")
+        st.dataframe(df_f, width="stretch")
+
+        dl1, _ = st.columns([2, 6])
+        with dl1:
+            download_xlsx_button(
+                df_f, "unidades_cortadas.xlsx", "⬇ Exportar vista (XLSX)"
+            )
         st.divider()
 
     # --- LOGICA WIP ---
     elif page == "WIP" and df_v is not None:
-        # Forzar cálculos si faltan columnas
         if "FECHA DE ENTREGA TELAS" in df_v.columns:
             df_v["FECHA DE ENTREGA TELAS"] = pd.to_datetime(
                 df_v["FECHA DE ENTREGA TELAS"], errors="coerce"
@@ -391,7 +396,6 @@ def render_section(page, DIRS):
             st.divider()
             col_a, col_b = st.columns(2)
 
-            # A. Aging Chart
             if "CRITICIDAD" in df_f.columns:
                 df_age = (
                     df_f.groupby(["CRITICIDAD", "MARCA"])["CANT. PENDIENTE"]
@@ -412,7 +416,6 @@ def render_section(page, DIRS):
                     width="stretch",
                 )
 
-            # B. WIP Material
             if "TIPO DE MATERIAL" in df_f.columns:
                 df_m = (
                     df_f.groupby("TIPO DE MATERIAL")["CANT. PENDIENTE"]
@@ -429,7 +432,6 @@ def render_section(page, DIRS):
                     width="stretch",
                 )
 
-            # C. Carga
             if "GRUPO DE ENTREGA" in df_f.columns:
                 df_grp = (
                     df_f.groupby("GRUPO DE ENTREGA")["CANT. PENDIENTE"]
@@ -448,14 +450,21 @@ def render_section(page, DIRS):
                     width="stretch",
                 )
 
-            # D. Tabla
-            st.subheader("Avance 0% - 10 más recientes")
+            st.subheader("Avance 0% — 10 más recientes")
             df_zero = (
                 df_f[df_f["AVANCE_%"] == 0]
                 .sort_values("DIAS_TALLER", ascending=False)
                 .head(10)
             )
             st.dataframe(df_zero, width="stretch")
+
+            dl1, dl2, _ = st.columns([1.8, 1.8, 4])
+            with dl1:
+                download_xlsx_button(df_f, "wip.xlsx", "⬇ Exportar WIP (XLSX)")
+            with dl2:
+                download_xlsx_button(
+                    df_zero, "wip_sin_avance.xlsx", "⬇ Sin avance (XLSX)"
+                )
             st.divider()
 
     up, view = st.columns([1, 3])
@@ -499,5 +508,12 @@ def render_section(page, DIRS):
         st.subheader("Vista de Datos")
         if st.session_state[key] is not None:
             st.dataframe(st.session_state[key], width="stretch")
+            dl1, _ = st.columns([2, 6])
+            with dl1:
+                download_xlsx_button(
+                    st.session_state[key],
+                    f"{page.lower().replace(' ', '_')}_completo.xlsx",
+                    "⬇ Exportar todo (XLSX)",
+                )
         else:
             st.info("Directorio vacío.")
