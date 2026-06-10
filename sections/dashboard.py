@@ -4,6 +4,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from core.etl import get_consolidated_df
+from core.xlsx_export import download_xlsx_button
 
 
 def kpi_card(label, value, color="blue"):
@@ -44,13 +45,11 @@ def _hex_pct(pct):
 def render_dashboard(DIRS):
     st.title("Dash")
 
-    # ── Carga ───────────────────────────────────────────────────────
     df_e = get_consolidated_df(DIRS["Grupo Entrega Real"])
     df_p = get_consolidated_df(DIRS["Referencias Pendientes"])
     df_c = get_consolidated_df(DIRS["Unidades cortadas"])
     df_w = get_consolidated_df(DIRS.get("WIP"))
 
-    # ── Filtros globales ────────────────────────────────────────────
     f1, f2, f3 = st.columns(3)
 
     marcas_disp = sorted(
@@ -99,38 +98,30 @@ def render_dashboard(DIRS):
     st.divider()
 
     # ── KPIs ────────────────────────────────────────────────────────
-    # Pedido total: CANT. ORDENADA de df_e
     pedido = (
         int(df_ef["CANT. ORDENADA"].sum())
         if df_ef is not None and "CANT. ORDENADA" in df_ef
         else 0
     )
-    # Terminado: CANT. COMPLETA de df_e
     terminado = (
         int(df_ef["CANT. COMPLETA"].sum())
         if df_ef is not None and "CANT. COMPLETA" in df_ef
         else 0
     )
-    # Cortado: CANT. COMPLETA de df_c  (en ese archivo representa unidades cortadas)
     cortado = (
         int(df_cf["CANT. COMPLETA"].sum())
         if df_cf is not None and "CANT. COMPLETA" in df_cf
         else 0
     )
-    # WIP: CANT. PENDIENTE de df_w
     wip = (
         int(df_wf["CANT. PENDIENTE"].sum())
         if df_wf is not None and "CANT. PENDIENTE" in df_wf
         else 0
     )
 
-    # Backlog = pedido - cortado (unidades ordenadas que aún no entraron a corte)
     backlog = max(0, pedido - cortado)
-    # Cumplimiento global
     pct_cumpl = round(terminado / pedido * 100, 1) if pedido > 0 else 0.0
-    # Eficiencia de corte = cortado / pedido
     pct_ef = round(cortado / pedido * 100, 1) if pedido > 0 else 0.0
-    # Ref. pendientes
     n_pend = len(df_pf) if df_pf is not None else 0
 
     k1, k2, k3, k4, k5 = st.columns(5)
@@ -181,7 +172,6 @@ def render_dashboard(DIRS):
         paper_bgcolor="rgba(0,0,0,0)",
     )
     st.plotly_chart(fig_funnel, width="stretch")
-
     st.divider()
 
     # ── Salud WIP + Balance marca/material ─────────────────────────
@@ -231,8 +221,8 @@ def render_dashboard(DIRS):
 
     with col_r:
         st.subheader("Balance marca × material")
-        # Preferir df_c; si no tiene material usar df_p
         src = None
+        val_col = None
         if (
             df_cf is not None
             and "TIPO DE MATERIAL" in df_cf.columns
@@ -247,7 +237,6 @@ def render_dashboard(DIRS):
         ):
             src = df_pf
 
-        val_col = None
         if src is not None:
             if val_col and val_col in src.columns:
                 df_mat = (
@@ -299,10 +288,7 @@ def render_dashboard(DIRS):
     ):
         grp = (
             df_ef.groupby("GRUPO DE ENTREGA")
-            .agg(
-                ORDENADO=("CANT. ORDENADA", "sum"),
-                COMPLETO=("CANT. COMPLETA", "sum"),
-            )
+            .agg(ORDENADO=("CANT. ORDENADA", "sum"), COMPLETO=("CANT. COMPLETA", "sum"))
             .reset_index()
         )
         grp["PCT"] = (
@@ -340,7 +326,9 @@ def render_dashboard(DIRS):
     # ── O.P. Críticas ───────────────────────────────────────────────
     st.subheader("O.P. críticas — vencidas sin avance")
 
-    df_crit_src = df_ef  # Grupo Entrega Real tiene FECHA TERMINACIÓN y CANT. PENDIENTE
+    df_crit_src = df_ef
+    df_op_crit = None
+
     if df_crit_src is not None:
         dc = df_crit_src.copy()
         fecha_col = next(
@@ -375,10 +363,18 @@ def render_dashboard(DIRS):
                 if col_op:
                     cols_show.insert(0, col_op)
                 cols_show = [c for c in cols_show if c in dc_crit.columns]
-                st.dataframe(
-                    dc_crit[cols_show].sort_values(pend_col, ascending=False).head(10),
-                    width="stretch",
+                df_op_crit = (
+                    dc_crit[cols_show].sort_values(pend_col, ascending=False).head(10)
                 )
+                st.dataframe(df_op_crit, width="stretch")
+
+                dl1, _ = st.columns([2, 6])
+                with dl1:
+                    download_xlsx_button(
+                        df_op_crit,
+                        "op_criticas.xlsx",
+                        "⬇ Descargar O.P. críticas (XLSX)",
+                    )
             else:
                 st.info("Columna CANT. PENDIENTE no encontrada en Grupo Entrega Real.")
         else:

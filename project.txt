@@ -1,0 +1,1461 @@
+===== FILE: /home/zam/code/WILSON/dash/requirements.txt =====
+pandas
+plotly
+streamlit
+streamlit-option-menu
+xlrd
+openpyxl
+
+
+===== FILE: /home/zam/code/WILSON/dash/.gitignore =====
+# VENV
+venv/
+
+# Bytecode Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local data
+data/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# System
+.DS_Store
+Thumbs.db
+
+# Logs and temporary files
+*.log
+*.tmp
+
+
+===== FILE: /home/zam/code/WILSON/dash/core/etl.py =====
+import os
+import re
+
+import pandas as pd
+
+
+def normalize_cols(df):
+    df.columns = [re.sub(r"\s+", " ", str(c).strip().upper()) for c in df.columns]
+    df = df.loc[:, ~df.columns.str.contains("^UNNAMED")]
+    return df.loc[:, ~df.columns.duplicated()]
+
+
+def clean_data_values(df, filename):
+    if "MARCA" not in df.columns:
+        df["MARCA"] = (
+            "STOP"
+            if "STOP" in filename.upper()
+            else "YOYO"
+            if "YOYO" in filename.upper()
+            else "DESCONOCIDO"
+        )
+    for col in df.columns:
+        if df[col].dtype == "object":
+            df[col] = df[col].apply(
+                lambda x: (
+                    re.sub(r"^\d+\s*-\s*", "", str(x)).strip().upper()
+                    if pd.notna(x)
+                    else x
+                )
+            )
+    num_cols = [
+        "CANT. PLANEADA",
+        "CANT. ORDENADA",
+        "CANT. COMPLETA",
+        "CANT. PENDIENTE",
+        "CANT.COMPLETA",
+    ]
+    for c in num_cols:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).round(0).astype(int)
+    date_cols = ["FECHA TERMINACIÓN", "FECHA CREACIÓN", "FECHA APROBACIÓN"]
+    for c in date_cols:
+        if c in df.columns:
+            df[c] = pd.to_datetime(df[c], errors="coerce", dayfirst=True)
+    return df
+
+
+def get_consolidated_df(path):
+    files = [f for f in os.listdir(path) if f.endswith(".csv")]
+    if not files:
+        return None
+    all_dfs = []
+    for f in files:
+        df = pd.read_csv(os.path.join(path, f))
+        df = normalize_cols(df)
+        df = clean_data_values(df, f)
+        all_dfs.append(df)
+    res = pd.concat(all_dfs, axis=0, ignore_index=True)
+    return res.loc[:, ~res.columns.duplicated()]
+
+
+def base_clean(df):
+    df.columns = [re.sub(r"\s+", " ", str(c).strip().upper()) for c in df.columns]
+    df.columns = [c.replace("Ó", "O").replace("É", "E") for c in df.columns]
+    return df.loc[:, ~df.columns.duplicated()]
+
+
+def clean_txt(val):
+    if pd.isna(val):
+        return val
+    return re.sub(r"^\d+\s*-\s*", "", str(val)).strip().upper()
+
+
+===== FILE: /home/zam/code/WILSON/dash/core/processor.py =====
+import pandas as pd
+
+from core.etl import base_clean, clean_txt
+
+
+def etl_entrega(df, fname):
+    df = base_clean(df)
+    targets = {
+        "DESC. EXTENSIÓN 1": "COLOR_NOMBRE",
+        "DETALLE EXT. 1": "COLOR_NOMBRE",
+        "COLECCION": "COLECCIÓN",
+    }
+    df = df.rename(columns=targets)
+    for c in df.columns:
+        if df[c].dtype == "object":
+            df[c] = df[c].astype(str).str.strip()
+    marca = "STOP" if "STOP" in fname.upper() else "YOYO"
+    if "MARCA" in df.columns:
+        df = df.drop(columns=["MARCA"])
+    df.insert(0, "MARCA", marca)
+    for c in ["CANT. ORDENADA", "CANT. COMPLETA", "CANT. PENDIENTE"]:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
+    df["CUMPLIMIENTO %"] = (df["CANT. COMPLETA"] / df["CANT. ORDENADA"]).fillna(0)
+    df["ESTATUS OP"] = df["CANT. PENDIENTE"].apply(
+        lambda x: "INCOMPLETO" if x > 0 else "CERRADO"
+    )
+    return df
+
+
+def etl_pendientes(df):
+    df = base_clean(df)
+    # 1. Mes_Limpio
+    if "MES" in df.columns:
+        df["MES"] = df["MES"].apply(clean_txt)
+    # 2. Marcas (STOP/YOYO)
+    if "MARCA" in df.columns:
+        df["MARCA"] = df["MARCA"].apply(clean_txt)
+    # 3. Prioridad
+    if "MES ADELANTO" in df.columns:
+        df["PRIORIDAD"] = df["MES ADELANTO"].apply(
+            lambda x: (
+                "Prioridad Alta" if pd.notna(x) and str(x).strip() != "" else "Normal"
+            )
+        )
+    return df.dropna(subset=["REFERENCIA"])
+
+
+def etl_cortadas(df):
+    df = base_clean(df)
+    # Limpiar Mes y Marca igual que Pendientes
+    if "MES" in df.columns:
+        df["MES"] = df["MES"].apply(clean_txt)
+    if "MARCA" in df.columns:
+        df["MARCA"] = df["MARCA"].apply(clean_txt)
+
+    if "FECHA CREACION" in df.columns:
+        df["FECHA CREACION"] = pd.to_datetime(
+            df["FECHA CREACION"], errors="coerce", format="mixed"
+        )
+
+    # Asegurar números
+    for c in ["CANT. PLANEADA", "CANT. ORDENADA", "CANT. COMPLETA"]:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
+
+    if "DESC. DETALLE EXT. 2" in df.columns:
+        df["DESC. DETALLE EXT. 2"] = df["DESC. DETALLE EXT. 2"].astype(str).str.strip()
+    return df
+
+
+def etl_wip(df, fname):
+    df = base_clean(df)
+
+    # 1. Marca/Mes/Material (STOP/YOYO/DENIM)
+    cols_clean = ["MARCA", "MES", "TIPO DE MATERIAL"]
+    for c in cols_clean:
+        if c in df.columns:
+            df[c] = df[c].apply(clean_txt)
+
+    # 2. Extraer Talla (T-14, T-TU)
+    if "ITEM O.P. RESUMEN" in df.columns:
+        df["TALLA"] = df["ITEM O.P. RESUMEN"].str.extract(r"(T-.*)$")[0].str.strip()
+
+    # 3. Fechas y Números
+    if "FECHA DE ENTREGA TELAS" in df.columns:
+        df["FECHA DE ENTREGA TELAS"] = pd.to_datetime(
+            df["FECHA DE ENTREGA TELAS"], errors="coerce", format="mixed"
+        )
+
+    for c in ["CANT. ORDENADA", "CANT. COMPLETA", "CANT. PENDIENTE"]:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
+
+    # 4. Aging + Avance
+    now = pd.Timestamp.now().normalize()
+    df["DIAS_TALLER"] = (now - df["FECHA DE ENTREGA TELAS"]).dt.days.fillna(0)
+    df["CRITICIDAD"] = df["DIAS_TALLER"].apply(
+        lambda d: "NORMAL" if d <= 7 else ("ATENCION" if d <= 14 else "CRITICO")
+    )
+    df["AVANCE_%"] = (df["CANT. COMPLETA"] / df["CANT. ORDENADA"] * 100).fillna(0)
+
+    return df
+
+
+===== FILE: /home/zam/code/WILSON/dash/sections/storage.py =====
+import os
+from datetime import datetime
+
+import pandas as pd
+import streamlit as st
+
+from core.etl import normalize_cols
+from core.processor import etl_cortadas, etl_entrega, etl_pendientes, etl_wip
+
+FOLDER_COLORS = [
+    "#185FA5",  # blue
+    "#0F6E56",  # teal
+    "#854F0B",  # amber
+    "#993556",  # pink
+    "#534AB7",  # purple
+    "#993C1D",  # coral
+]
+
+
+def _file_meta(path: str) -> tuple[str, str]:
+    stat = os.stat(path)
+    size = stat.st_size
+    if size < 1024:
+        size_str = f"{size} B"
+    elif size < 1024**2:
+        size_str = f"{size / 1024:.0f} KB"
+    else:
+        size_str = f"{size / 1024**2:.1f} MB"
+    date_str = datetime.fromtimestamp(stat.st_mtime).strftime("%d/%m/%Y")
+    return size_str, date_str
+
+
+def render_storage(DIRS):
+    st.title("Gestión de archivos")
+    st.divider()
+
+    if "upload_reset" not in st.session_state:
+        st.session_state["upload_reset"] = {}
+
+    for idx, (label, path) in enumerate(DIRS.items()):
+        color = FOLDER_COLORS[idx % len(FOLDER_COLORS)]
+        files = sorted(os.listdir(path)) if os.path.isdir(path) else []
+        n = len(files)
+        badge = f"{n} {'archivo' if n == 1 else 'archivos'}" if n > 0 else "vacío"
+
+        # ── Cabecera con barra de color ─────────────────────────────
+        st.markdown(
+            f"""
+            <div style="
+                border-left: 4px solid {color};
+                border-radius: 0;
+                padding: 10px 14px;
+                margin: 1.5rem 0 0.75rem;
+                display: flex;
+                align-items: center;
+                gap: 10px;
+            ">
+                <h4 style="font-weight:500;color:var(--color-text-primary);flex:1">{label}</h4>
+                <span style="
+                    font-size:11px;
+                    padding:2px 10px;
+                    border-radius:20px;
+                    background:{color}22;
+                    color:{color};
+                    font-weight:500;
+                ">{badge}</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        # ── Subida ──────────────────────────────────────────────────
+        reset_n = st.session_state["upload_reset"].get(label, 0)
+        up_col, btn_col = st.columns([5, 1])
+        with up_col:
+            uploaded = st.file_uploader(
+                f"up_label_{label}",
+                type=["xls", "xlsx"],
+                accept_multiple_files=True,
+                key=f"up_{label}_{reset_n}",
+                label_visibility="collapsed",
+            )
+        with btn_col:
+            st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+            if st.button(
+                "Subir",
+                key=f"btn_up_{label}",
+                use_container_width=True,
+            ):
+                if uploaded:
+                    for f in uploaded:
+                        # 1. Leer excel temporal
+                        df = pd.read_excel(f)
+
+                        # 2. Aplicar Forward Fill base
+                        excl = [
+                            "MES ADELANTO",
+                            "GRUPO DE ENTREGA",
+                            "LINEA",
+                            "TIPO DE ABASTECIMIENTO",
+                        ]
+                        fill_cols = [c for c in df.columns if c not in excl]
+                        df[fill_cols] = df[fill_cols].ffill()
+
+                        # 3. Aplicar lógica por sección
+                        if label == "Grupo Entrega Real":
+                            df = etl_entrega(df, f.name)
+                        elif label == "Referencias Pendientes":
+                            df = etl_pendientes(df)
+                        elif label == "Unidades cortadas":
+                            df = etl_cortadas(df)
+                        elif label == "WIP":
+                            df = etl_wip(df, f.name)
+                        else:
+                            df = normalize_cols(df)
+
+                        # 4. Guardar como CSV
+                        fname_csv = f.name.rsplit(".", 1)[0] + ".csv"
+                        df.to_csv(os.path.join(path, fname_csv), index=False)
+
+                    # Reset y cache
+                    cache_key = f"df_cache_{label}"
+                    if cache_key in st.session_state:
+                        del st.session_state[cache_key]
+                    st.session_state["upload_reset"][label] = reset_n + 1
+                    st.rerun()
+                else:
+                    st.toast("Selecciona al menos un archivo primero.", icon="⚠️")
+
+        # ── Lista de archivos ───────────────────────────────────────
+        if not files:
+            st.caption("No hay archivos en esta carpeta.")
+            st.divider()
+            continue
+
+        # Cabecera columnas
+        _, h_name, h_size, h_date, _ = st.columns([0.4, 4, 1, 1.2, 0.5])
+        h_name.markdown(
+            "<span style='font-size:12px;color:var(--color-text-secondary)'>Nombre</span>",
+            unsafe_allow_html=True,
+        )
+        h_size.markdown(
+            "<span style='font-size:12px;color:var(--color-text-secondary)'>Tamaño</span>",
+            unsafe_allow_html=True,
+        )
+        h_date.markdown(
+            "<span style='font-size:12px;color:var(--color-text-secondary)'>Modificado</span>",
+            unsafe_allow_html=True,
+        )
+
+        selected = []
+        for fname in files:
+            fpath = os.path.join(path, fname)
+            size_str, date_str = _file_meta(fpath)
+
+            c_chk, c_name, c_size, c_date, c_del = st.columns([0.4, 4, 1, 1.2, 0.5])
+            checked = c_chk.checkbox(
+                label=fname,
+                key=f"chk_{label}_{fname}",
+                label_visibility="collapsed",
+            )
+            c_name.markdown(
+                f"<span style='font-size:13px;line-height:2;"
+                f"border-left:2px solid {color};padding-left:8px'>{fname}</span>",
+                unsafe_allow_html=True,
+            )
+            c_size.markdown(
+                f"<span style='font-size:12px;color:var(--color-text-secondary);line-height:2.8'>{size_str}</span>",
+                unsafe_allow_html=True,
+            )
+            c_date.markdown(
+                f"<span style='font-size:12px;color:var(--color-text-secondary);line-height:2.8'>{date_str}</span>",
+                unsafe_allow_html=True,
+            )
+            if c_del.button("✕", key=f"del1_{label}_{fname}", help=f"Eliminar {fname}"):
+                os.remove(fpath)
+                cache_key = f"df_cache_{label}"
+                if cache_key in st.session_state:
+                    del st.session_state[cache_key]
+                st.rerun()
+
+            if checked:
+                selected.append(fname)
+
+        # ── Acciones bulk ───────────────────────────────────────────
+        act1, act2, _ = st.columns([1.6, 1.4, 3])
+        del_label = (
+            f"Eliminar seleccionados ({len(selected)})"
+            if selected
+            else "Eliminar seleccionados"
+        )
+        if act1.button(
+            del_label, key=f"del_{label}", disabled=not selected, type="secondary"
+        ):
+            for fname in selected:
+                os.remove(os.path.join(path, fname))
+            cache_key = f"df_cache_{label}"
+            if cache_key in st.session_state:
+                del st.session_state[cache_key]
+            st.rerun()
+
+        if act2.button("Vaciar carpeta", key=f"clear_{label}", type="secondary"):
+            for fname in files:
+                os.remove(os.path.join(path, fname))
+            cache_key = f"df_cache_{label}"
+            if cache_key in st.session_state:
+                del st.session_state[cache_key]
+            st.rerun()
+
+        st.divider()
+
+
+===== FILE: /home/zam/code/WILSON/dash/sections/__init__.py =====
+
+
+===== FILE: /home/zam/code/WILSON/dash/sections/management.py =====
+import os
+import re
+from xxlimited import new
+
+import pandas as pd
+import plotly.express as px
+import streamlit as st
+
+from core.etl import get_consolidated_df, normalize_cols
+from core.processor import etl_cortadas, etl_entrega, etl_pendientes, etl_wip
+
+# --- HELPER ORDEN ---
+MESES_ORD = [
+    "ENERO",
+    "FEBRERO",
+    "MARZO",
+    "ABRIL",
+    "MAYO",
+    "JUNIO",
+    "JULIO",
+    "AGOSTO",
+    "SEPTIEMBRE",
+    "OCTUBRE",
+    "NOVIEMBRE",
+    "DICIEMBRE",
+]
+
+
+def sort_df(df):
+    if df is None or df.empty:
+        return df
+    s_cols = []
+    # 1. Orden Mes (Categorical)
+    if "MES" in df.columns:
+        df["MES"] = pd.Categorical(df["MES"], categories=MESES_ORD, ordered=True)
+        s_cols.append("MES")
+    # 2. Orden MOP / Referencia
+    for c in ["O.P. NUMERO", "O.P. NÚMERO", "REFERENCIA"]:
+        if c in df.columns:
+            s_cols.append(c)
+            break
+    return df.sort_values(by=s_cols).reset_index(drop=True)
+
+
+def render_section(page, DIRS):
+    st.title(page)
+    path = DIRS[page]
+    key = f"df_cache_{page}"
+    if key not in st.session_state:
+        df = get_consolidated_df(path)
+        st.session_state[key] = get_consolidated_df(path)
+    df_v = st.session_state[key]
+
+    def get_opts(series, label):
+        s = (
+            series.astype(str)
+            .str.strip()
+            .replace(["nan", "None", "", "NaN", "<NA>"], pd.NA)
+        )
+        s = s.apply(lambda x: re.sub(r"^\d+\s*-\s*", "", str(x)) if pd.notna(x) else x)
+        return s.fillna(label)
+
+    if page == "Grupo Entrega Real" and df_v is not None:
+        st.subheader("Filtros")
+        c1, c2, c3, c4 = st.columns(4)
+
+        # Helper limpieza filtros
+        def get_opts(series, label):
+            s = (
+                series.astype(str)
+                .str.strip()
+                .replace(["nan", "None", "", "NaN", "<NA>"], pd.NA)
+            )
+            # Quitar prefijos 001- 002- para vista limpia
+            s = s.apply(
+                lambda x: re.sub(r"^\d+\s*-\s*", "", str(x)) if pd.notna(x) else x
+            )
+            return s.fillna(label)
+
+        # Preparar Series limpias para matching
+        s_marca = get_opts(df_v["MARCA"], "[Sin Marca]")
+        s_mes = get_opts(df_v["MES"], "[Sin Mes]") if "MES" in df_v else pd.Series()
+
+        c_col = (
+            "COLECCIÓN"
+            if "COLECCIÓN" in df_v
+            else ("COLECCION" if "COLECCION" in df_v else None)
+        )
+        s_coll = get_opts(df_v[c_col], "[Sin Coleccion]") if c_col else pd.Series()
+
+        s_grp = (
+            get_opts(df_v["GRUPO DE ENTREGA"], "[Sin Grupo Entrega]")
+            if "GRUPO DE ENTREGA" in df_v
+            else pd.Series()
+        )
+
+        # Render multiselects con sorted unique
+        f_marca = c1.multiselect("Marca", sorted(s_marca.unique().tolist()))
+        f_mes = (
+            c2.multiselect("Mes", sorted(s_mes.unique().tolist()))
+            if not s_mes.empty
+            else []
+        )
+        f_coll = (
+            c3.multiselect("Colección", sorted(s_coll.unique().tolist()))
+            if not s_coll.empty
+            else []
+        )
+        f_grupo = (
+            c4.multiselect("Grupo Entrega", sorted(s_grp.unique().tolist()))
+            if not s_grp.empty
+            else []
+        )
+
+        mask = pd.Series(True, index=df_v.index)
+        if f_marca:
+            mask &= s_marca.isin(f_marca)
+        if f_mes:
+            mask &= s_mes.isin(f_mes)
+        if f_coll:
+            mask &= s_coll.isin(f_coll)
+        if f_grupo:
+            mask &= s_grp.isin(f_grupo)
+        df_f = df_v[mask]
+
+        st.divider()
+        if c_col and not df_f.empty:
+            st.plotly_chart(
+                px.bar(
+                    df_f.groupby(c_col)[["CANT. ORDENADA", "CANT. COMPLETA"]]
+                    .sum()
+                    .reset_index(),
+                    x=c_col,
+                    y=["CANT. ORDENADA", "CANT. COMPLETA"],
+                    barmode="group",
+                    title="Ordenado vs Completo",
+                ),
+                width="stretch",
+            )
+
+        st.subheader("O.P. Críticas")
+        col_fecha = (
+            "FECHA TERMINACION"
+            if "FECHA TERMINACION" in df_f.columns
+            else "FECHA TERMINACIÓN"
+        )
+
+        if col_fecha in df_f.columns:
+            # Asegurar datetime
+            df_f[col_fecha] = pd.to_datetime(df_f[col_fecha], errors="coerce")
+
+            today = pd.Timestamp.now().normalize()
+            df_crit = df_f[(df_f[col_fecha] < today) & (df_f["CANT. PENDIENTE"] > 0)]
+            st.dataframe(
+                df_crit.sort_values("CANT. PENDIENTE", ascending=False).head(10),
+                width="stretch",
+            )
+        st.divider()
+
+    # --- LOGICA REFERENCIAS PENDIENTES ---
+    elif page == "Referencias Pendientes" and df_v is not None:
+        st.subheader("Filtros")
+        c1, c2, c3, c4 = st.columns(4)
+
+        s_marca = get_opts(df_v["MARCA"], "[Sin Marca]")
+        s_mat = (
+            get_opts(df_v["TIPO DE MATERIAL"], "[Sin Material]")
+            if "TIPO DE MATERIAL" in df_v
+            else pd.Series()
+        )
+        # Cambio a Mes_Limpio
+        s_mes = get_opts(df_v["MES"], "[Sin Mes]") if "MES" in df_v else pd.Series()
+        s_prio = (
+            get_opts(df_v["PRIORIDAD"], "Normal")
+            if "PRIORIDAD" in df_v
+            else pd.Series()
+        )
+
+        f_marca = c1.multiselect("Marca", sorted(s_marca.unique().tolist()))
+        f_mat = c2.multiselect("Tipo de Material", sorted(s_mat.unique().tolist()))
+        f_mes = c3.multiselect("Mes Limpio", sorted(s_mes.unique().tolist()))
+        f_prio = c4.multiselect("Prioridad", sorted(s_prio.unique().tolist()))
+
+        mask = pd.Series(True, index=df_v.index)
+        if f_marca:
+            mask &= s_marca.isin(f_marca)
+        if f_mat:
+            mask &= s_mat.isin(f_mat)
+        if f_mes:
+            mask &= s_mes.isin(f_mes)
+        if f_prio:
+            mask &= s_prio.isin(f_prio)
+        df_f = df_v[mask]
+
+        st.divider()
+        chart_col1, chart_col2 = st.columns(2)
+
+        if "TIPO DE MATERIAL" in df_f.columns:
+            df_mat = (
+                df_f.groupby(["TIPO DE MATERIAL", "MARCA"])
+                .size()
+                .reset_index(name="CANTIDAD")
+            )
+            chart_col1.plotly_chart(
+                px.bar(
+                    df_mat,
+                    x="TIPO DE MATERIAL",
+                    y="CANTIDAD",
+                    color="MARCA",
+                    title="Pendientes por Material",
+                ),
+                width="stretch",
+            )
+
+        if "TIPO DE LINEA" in df_f.columns:
+            df_linea = df_f["TIPO DE LINEA"].value_counts().reset_index()
+            chart_col2.plotly_chart(
+                px.pie(
+                    df_linea,
+                    values="count",
+                    names="TIPO DE LINEA",
+                    hole=0.5,
+                    title="Distribución por Línea",
+                ),
+                width="stretch",
+            )
+
+        st.subheader("Resumen por Grupo de Entrega")
+        if "GRUPO DE ENTREGA" in df_f.columns:
+            resumen = (
+                df_f.groupby("GRUPO DE ENTREGA")
+                .size()
+                .reset_index(name="REF. PENDIENTES")
+            )
+            st.table(resumen.sort_values("REF. PENDIENTES", ascending=False))
+        st.divider()
+
+    # --- LOGICA UNIDADES CORTADAS ---
+    elif page == "Unidades cortadas" and df_v is not None:
+        # 1. Asegurar tipos de datos antes de filtrar
+        if "FECHA CREACION" in df_v.columns:
+            df_v["FECHA CREACION"] = pd.to_datetime(
+                df_v["FECHA CREACION"], errors="coerce", format="mixed"
+            )
+
+        st.subheader("Filtros")
+        c1, c2, c3 = st.columns(3)
+
+        s_marca = get_opts(df_v["MARCA"], "[Sin Marca]")
+        s_linea = (
+            get_opts(df_v["LINEA"], "[Sin Linea]") if "LINEA" in df_v else pd.Series()
+        )
+        # USAR COLUMNA MES DIRECTAMENTE (YA LIMPIA)
+        s_mes = get_opts(df_v["MES"], "[Sin Mes]") if "MES" in df_v else pd.Series()
+
+        f_marca = c1.multiselect("Marca", sorted(s_marca.unique().tolist()))
+        f_linea = c2.multiselect("Línea", sorted(s_linea.unique().tolist()))
+        f_mes = c3.multiselect("Mes", sorted(s_mes.unique().tolist()))
+
+        mask = pd.Series(True, index=df_v.index)
+        if f_marca:
+            mask &= s_marca.isin(f_marca)
+        if f_linea:
+            mask &= s_linea.isin(f_linea)
+        if f_mes:
+            mask &= s_mes.isin(f_mes)
+        df_f = df_v[mask].copy()
+
+        # Buscar columna numérica (Prioridad: ORDENADA > PLANEADA > COMPLETA)
+        num_cols = df_f.select_dtypes(include=["number"]).columns.tolist()
+        val_col = None
+        for c in ["CANT. ORDENADA", "CANT. PLANEADA", "CANT. COMPLETA"]:
+            if c in num_cols:
+                val_col = c
+                break
+        if not val_col and num_cols:
+            val_col = num_cols[0]
+
+        if val_col and not df_f.empty:
+            st.divider()
+
+            # 1. Columnas Apiladas (WIP)
+            if "LINEA" in df_f.columns:
+                df_wip = df_f.groupby(["LINEA", "MARCA"])[val_col].sum().reset_index()
+                st.plotly_chart(
+                    px.bar(
+                        df_wip,
+                        x="LINEA",
+                        y=val_col,
+                        color="MARCA",
+                        barmode="stack",
+                        title=f"WIP: {val_col} por Línea",
+                    ),
+                    width="stretch",
+                )
+
+            # 2. Productividad Diaria
+            if "FECHA CREACION" in df_f.columns:
+                df_temp = df_f.dropna(subset=["FECHA CREACION"])
+                if not df_temp.empty:
+                    df_daily = (
+                        df_temp.groupby(df_temp["FECHA CREACION"].dt.date)[val_col]
+                        .sum()
+                        .reset_index()
+                    )
+                    df_daily.columns = ["FECHA", "CANTIDAD"]
+                    df_daily = df_daily.sort_values("FECHA")
+
+                    st.plotly_chart(
+                        px.line(
+                            df_daily,
+                            x="FECHA",
+                            y="CANTIDAD",
+                            markers=True,
+                            title=f"Productividad Diaria ({val_col})",
+                        ),
+                        width="stretch",
+                    )
+                else:
+                    st.info("No hay fechas válidas para mostrar productividad.")
+
+            # 3. Treemap
+            if "TIPO DE MATERIAL" in df_f.columns:
+                df_tree = df_f.groupby("TIPO DE MATERIAL")[val_col].sum().reset_index()
+                st.plotly_chart(
+                    px.treemap(
+                        df_tree,
+                        path=["TIPO DE MATERIAL"],
+                        values=val_col,
+                        title="Distribución por Material",
+                    ),
+                    width="stretch",
+                )
+        else:
+            st.warning("Sin datos numéricos o filtros vacíos.")
+        st.divider()
+
+    # --- LOGICA WIP ---
+    elif page == "WIP" and df_v is not None:
+        # Forzar cálculos si faltan columnas
+        if "FECHA DE ENTREGA TELAS" in df_v.columns:
+            df_v["FECHA DE ENTREGA TELAS"] = pd.to_datetime(
+                df_v["FECHA DE ENTREGA TELAS"], errors="coerce"
+            )
+            now = pd.Timestamp.now().normalize()
+            df_v["DIAS_TALLER"] = (now - df_v["FECHA DE ENTREGA TELAS"]).dt.days.fillna(
+                0
+            )
+
+            def get_crit(d):
+                if d <= 7:
+                    return "NORMAL"
+                if d <= 14:
+                    return "ATENCION"
+                return "CRITICO"
+
+            df_v["CRITICIDAD"] = df_v["DIAS_TALLER"].apply(get_crit)
+        if "CANT. ORDENADA" in df_v.columns and "CANT. COMPLETA" in df_v.columns:
+            df_v["AVANCE_%"] = (
+                df_v["CANT. COMPLETA"] / df_v["CANT. ORDENADA"] * 100
+            ).fillna(0)
+
+        st.subheader("Filtros WIP")
+        c1, c2, c3, c4 = st.columns(4)
+        s_marca = get_opts(df_v["MARCA"], "[Sin Marca]")
+        s_mat = get_opts(df_v["TIPO DE MATERIAL"], "[Sin Material]")
+        s_mes = get_opts(df_v["MES"], "[Sin Mes]")
+        s_crit = (
+            get_opts(df_v["CRITICIDAD"], "NORMAL")
+            if "CRITICIDAD" in df_v
+            else pd.Series(["NORMAL"] * len(df_v))
+        )
+
+        f_marca = c1.multiselect("Marca", sorted(s_marca.unique().tolist()))
+        f_mat = c2.multiselect("Material", sorted(s_mat.unique().tolist()))
+        f_mes = c3.multiselect("Mes", sorted(s_mes.unique().tolist()))
+        f_crit = c4.multiselect("Criticidad", ["NORMAL", "ATENCION", "CRITICO"])
+
+        mask = pd.Series(True, index=df_v.index)
+        if f_marca:
+            mask &= s_marca.isin(f_marca)
+        if f_mat:
+            mask &= s_mat.isin(f_mat)
+        if f_mes:
+            mask &= s_mes.isin(f_mes)
+        if f_crit:
+            mask &= s_crit.isin(f_crit)
+        df_f = df_v[mask].copy()
+
+        if not df_f.empty:
+            st.divider()
+            col_a, col_b = st.columns(2)
+
+            # A. Aging Chart
+            if "CRITICIDAD" in df_f.columns:
+                df_age = (
+                    df_f.groupby(["CRITICIDAD", "MARCA"])["CANT. PENDIENTE"]
+                    .sum()
+                    .reset_index()
+                )
+                col_a.plotly_chart(
+                    px.bar(
+                        df_age,
+                        x="CRITICIDAD",
+                        y="CANT. PENDIENTE",
+                        color="MARCA",
+                        title="Aging WIP",
+                        category_orders={
+                            "CRITICIDAD": ["NORMAL", "ATENCION", "CRITICO"]
+                        },
+                    ),
+                    width="stretch",
+                )
+
+            # B. WIP Material
+            if "TIPO DE MATERIAL" in df_f.columns:
+                df_m = (
+                    df_f.groupby("TIPO DE MATERIAL")["CANT. PENDIENTE"]
+                    .sum()
+                    .reset_index()
+                )
+                col_b.plotly_chart(
+                    px.treemap(
+                        df_m,
+                        path=["TIPO DE MATERIAL"],
+                        values="CANT. PENDIENTE",
+                        title="WIP Material",
+                    ),
+                    width="stretch",
+                )
+
+            # C. Carga
+            if "GRUPO DE ENTREGA" in df_f.columns:
+                df_grp = (
+                    df_f.groupby("GRUPO DE ENTREGA")["CANT. PENDIENTE"]
+                    .sum()
+                    .reset_index()
+                    .sort_values("CANT. PENDIENTE")
+                )
+                st.plotly_chart(
+                    px.bar(
+                        df_grp.tail(15),
+                        x="CANT. PENDIENTE",
+                        y="GRUPO DE ENTREGA",
+                        orientation="h",
+                        title="Top Carga",
+                    ),
+                    width="stretch",
+                )
+
+            # D. Tabla
+            st.subheader("Avance 0% - 10 más recientes")
+            df_zero = (
+                df_f[df_f["AVANCE_%"] == 0]
+                .sort_values("DIAS_TALLER", ascending=False)
+                .head(10)
+            )
+            st.dataframe(df_zero, width="stretch")
+            st.divider()
+
+    up, view = st.columns([1, 3])
+    with up:
+        st.subheader("Subir XLS")
+        files = st.file_uploader(
+            "Archivos",
+            type=["xls", "xlsx"],
+            accept_multiple_files=True,
+            key=f"u_{page}",
+        )
+        if st.button("Procesar y Guardar"):
+            for f in files:
+                df = pd.read_excel(f)
+                excl = [
+                    "MES ADELANTO",
+                    "GRUPO DE ENTREGA",
+                    "LINEA",
+                    "TIPO DE ABASTECIMIENTO",
+                ]
+                df[[c for c in df.columns if c not in excl]] = df[
+                    [c for c in df.columns if c not in excl]
+                ].ffill()
+                if page == "Grupo Entrega Real":
+                    df = etl_entrega(df, f.name)
+                elif page == "Referencias Pendientes":
+                    df = etl_pendientes(df)
+                elif page == "Unidades cortadas":
+                    df = etl_cortadas(df)
+                elif page == "WIP":
+                    df = etl_wip(df, f.name)
+                else:
+                    df = normalize_cols(df)
+                df.to_csv(
+                    os.path.join(path, f.name.rsplit(".", 1)[0] + ".csv"), index=False
+                )
+            new_df = get_consolidated_df(path)
+            st.session_state[key] = sort_df(new_df)
+            st.rerun()
+    with view:
+        st.subheader("Vista de Datos")
+        if st.session_state[key] is not None:
+            st.dataframe(st.session_state[key], width="stretch")
+        else:
+            st.info("Directorio vacío.")
+
+
+===== FILE: /home/zam/code/WILSON/dash/sections/dashboard.py =====
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+import streamlit as st
+
+from core.etl import get_consolidated_df
+
+
+def kpi_card(label, value, color="blue"):
+    color_map = {
+        "green": ("#EAF3DE", "#3B6D11"),
+        "amber": ("#FAEEDA", "#854F0B"),
+        "red": ("#FCEBEB", "#A32D2D"),
+        "blue": ("#E6F1FB", "#185FA5"),
+        "purple": ("#EEEDFE", "#3C3489"),
+    }
+    bg, fg = color_map.get(color, color_map["blue"])
+    st.markdown(
+        f"""<div style="background:{bg};padding:16px 18px;border-radius:10px;">
+            <p style="color:{fg};margin:0 0 4px;font-size:12px;font-weight:500;
+               text-transform:uppercase;letter-spacing:.05em;">{label}</p>
+            <p style="margin:0;font-size:24px;font-weight:600;color:{fg};">{value}</p>
+        </div>""",
+        unsafe_allow_html=True,
+    )
+
+
+def _pct_color(pct):
+    if pct >= 80:
+        return "green"
+    if pct >= 60:
+        return "amber"
+    return "red"
+
+
+def _hex_pct(pct):
+    if pct >= 80:
+        return "#639922"
+    if pct >= 60:
+        return "#BA7517"
+    return "#E24B4A"
+
+
+def render_dashboard(DIRS):
+    st.title("Dash")
+
+    # ── Carga ───────────────────────────────────────────────────────
+    df_e = get_consolidated_df(DIRS["Grupo Entrega Real"])
+    df_p = get_consolidated_df(DIRS["Referencias Pendientes"])
+    df_c = get_consolidated_df(DIRS["Unidades cortadas"])
+    df_w = get_consolidated_df(DIRS.get("WIP"))
+
+    # ── Filtros globales ────────────────────────────────────────────
+    f1, f2, f3 = st.columns(3)
+
+    marcas_disp = sorted(
+        set().union(
+            df_e["MARCA"].dropna().unique().tolist()
+            if df_e is not None and "MARCA" in df_e
+            else [],
+            df_c["MARCA"].dropna().unique().tolist()
+            if df_c is not None and "MARCA" in df_c
+            else [],
+        )
+    ) or ["STOP", "YOYO"]
+    sel_marca = f1.multiselect("Marca", marcas_disp, default=marcas_disp)
+
+    meses_disp = []
+    for df in [df_e, df_p, df_c]:
+        if df is not None and "MES" in df.columns:
+            meses_disp = sorted(df["MES"].dropna().unique().tolist())
+            break
+    sel_mes = f2.multiselect("Mes de entrega", meses_disp)
+
+    mats_disp = []
+    for df in [df_c, df_p, df_w]:
+        if df is not None and "TIPO DE MATERIAL" in df.columns:
+            mats_disp = sorted(df["TIPO DE MATERIAL"].dropna().unique().tolist())
+            break
+    sel_mat = f3.multiselect("Tipo de material", mats_disp)
+
+    def filtrar(df):
+        if df is None:
+            return None
+        mask = pd.Series(True, index=df.index)
+        if sel_marca and "MARCA" in df.columns:
+            mask &= df["MARCA"].isin(sel_marca)
+        if sel_mes and "MES" in df.columns:
+            mask &= df["MES"].isin(sel_mes)
+        if sel_mat and "TIPO DE MATERIAL" in df.columns:
+            mask &= df["TIPO DE MATERIAL"].isin(sel_mat)
+        return df[mask].copy()
+
+    df_ef = filtrar(df_e)
+    df_pf = filtrar(df_p)
+    df_cf = filtrar(df_c)
+    df_wf = filtrar(df_w)
+
+    st.divider()
+
+    # ── KPIs ────────────────────────────────────────────────────────
+    # Pedido total: CANT. ORDENADA de df_e
+    pedido = (
+        int(df_ef["CANT. ORDENADA"].sum())
+        if df_ef is not None and "CANT. ORDENADA" in df_ef
+        else 0
+    )
+    # Terminado: CANT. COMPLETA de df_e
+    terminado = (
+        int(df_ef["CANT. COMPLETA"].sum())
+        if df_ef is not None and "CANT. COMPLETA" in df_ef
+        else 0
+    )
+    # Cortado: CANT. COMPLETA de df_c  (en ese archivo representa unidades cortadas)
+    cortado = (
+        int(df_cf["CANT. COMPLETA"].sum())
+        if df_cf is not None and "CANT. COMPLETA" in df_cf
+        else 0
+    )
+    # WIP: CANT. PENDIENTE de df_w
+    wip = (
+        int(df_wf["CANT. PENDIENTE"].sum())
+        if df_wf is not None and "CANT. PENDIENTE" in df_wf
+        else 0
+    )
+
+    # Backlog = pedido - cortado (unidades ordenadas que aún no entraron a corte)
+    backlog = max(0, pedido - cortado)
+    # Cumplimiento global
+    pct_cumpl = round(terminado / pedido * 100, 1) if pedido > 0 else 0.0
+    # Eficiencia de corte = cortado / pedido
+    pct_ef = round(cortado / pedido * 100, 1) if pedido > 0 else 0.0
+    # Ref. pendientes
+    n_pend = len(df_pf) if df_pf is not None else 0
+
+    k1, k2, k3, k4, k5 = st.columns(5)
+    with k1:
+        kpi_card("Cumplimiento global", f"{pct_cumpl}%", _pct_color(pct_cumpl))
+    with k2:
+        kpi_card("WIP actual", f"{wip:,}", "blue")
+    with k3:
+        kpi_card(
+            "Backlog de corte", f"{backlog:,}", "amber" if backlog > 0 else "green"
+        )
+    with k4:
+        kpi_card("Eficiencia de corte", f"{pct_ef}%", _pct_color(pct_ef))
+    with k5:
+        kpi_card("Ref. pendientes", f"{n_pend:,}", "red" if n_pend > 100 else "amber")
+
+    st.divider()
+
+    # ── Embudo de flujo ─────────────────────────────────────────────
+    st.subheader("Embudo de flujo")
+
+    def _pct_label(v):
+        return f"{v:,} ({round(v / pedido * 100)}%)" if pedido > 0 else str(v)
+
+    fig_funnel = go.Figure(
+        go.Bar(
+            y=["Terminado", "WIP", "Cortado", "Pedido"],
+            x=[terminado, wip, cortado, pedido],
+            orientation="h",
+            text=[
+                _pct_label(terminado),
+                _pct_label(wip),
+                _pct_label(cortado),
+                _pct_label(pedido),
+            ],
+            textposition="inside",
+            insidetextanchor="start",
+            marker_color=["#639922", "#BA7517", "#1D9E75", "#378ADD"],
+            marker_line_width=0,
+        )
+    )
+    fig_funnel.update_layout(
+        xaxis=dict(showgrid=False, showticklabels=False, zeroline=False),
+        yaxis=dict(showgrid=False),
+        margin=dict(t=10, b=10, l=10, r=10),
+        height=220,
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+    )
+    st.plotly_chart(fig_funnel, width="stretch")
+
+    st.divider()
+
+    # ── Salud WIP + Balance marca/material ─────────────────────────
+    col_l, col_r = st.columns(2)
+
+    with col_l:
+        st.subheader("Salud del WIP")
+        if (
+            df_wf is not None
+            and "FECHA DE ENTREGA TELAS" in df_wf.columns
+            and "CANT. PENDIENTE" in df_wf.columns
+        ):
+            dw = df_wf.copy()
+            dw["FECHA DE ENTREGA TELAS"] = pd.to_datetime(
+                dw["FECHA DE ENTREGA TELAS"], errors="coerce", format="mixed"
+            )
+            dw["DIAS"] = (pd.Timestamp.now() - dw["FECHA DE ENTREGA TELAS"]).dt.days
+            dw["Antigüedad"] = dw["DIAS"].apply(
+                lambda d: (
+                    "+15 días"
+                    if pd.notna(d) and d > 15
+                    else ("8–15 días" if pd.notna(d) and d > 7 else "0–7 días")
+                )
+            )
+            resumen = (
+                dw.groupby("Antigüedad")["CANT. PENDIENTE"]
+                .sum()
+                .reindex(["0–7 días", "8–15 días", "+15 días"], fill_value=0)
+                .reset_index()
+            )
+            fig_wip = px.pie(
+                resumen,
+                names="Antigüedad",
+                values="CANT. PENDIENTE",
+                hole=0.55,
+                color="Antigüedad",
+                color_discrete_map={
+                    "0–7 días": "#639922",
+                    "8–15 días": "#BA7517",
+                    "+15 días": "#E24B4A",
+                },
+            )
+            fig_wip.update_layout(margin=dict(t=10, b=10), height=260)
+            st.plotly_chart(fig_wip, width="stretch")
+        else:
+            st.info("Sin datos de WIP con fecha de entrega de telas.")
+
+    with col_r:
+        st.subheader("Balance marca × material")
+        # Preferir df_c; si no tiene material usar df_p
+        src = None
+        if (
+            df_cf is not None
+            and "TIPO DE MATERIAL" in df_cf.columns
+            and "MARCA" in df_cf.columns
+        ):
+            src = df_cf
+            val_col = "CANT. COMPLETA"
+        elif (
+            df_pf is not None
+            and "TIPO DE MATERIAL" in df_pf.columns
+            and "MARCA" in df_pf.columns
+        ):
+            src = df_pf
+
+        val_col = None
+        if src is not None:
+            if val_col and val_col in src.columns:
+                df_mat = (
+                    src.groupby(["TIPO DE MATERIAL", "MARCA"])[val_col]
+                    .sum()
+                    .reset_index()
+                )
+                y_axis = val_col
+            else:
+                df_mat = (
+                    src.groupby(["TIPO DE MATERIAL", "MARCA"])
+                    .size()
+                    .reset_index(name="CANTIDAD")
+                )
+                y_axis = "CANTIDAD"
+
+            fig_mat = px.bar(
+                df_mat,
+                x="TIPO DE MATERIAL",
+                y=y_axis,
+                color="MARCA",
+                barmode="group",
+                color_discrete_map={
+                    "STOP": "#378ADD",
+                    "YOYO": "#D4537E",
+                    "001 - STOP": "#378ADD",
+                    "003 - YOYO": "#D4537E",
+                },
+            )
+            fig_mat.update_layout(
+                margin=dict(t=10, b=10),
+                height=260,
+                plot_bgcolor="rgba(0,0,0,0)",
+                paper_bgcolor="rgba(0,0,0,0)",
+            )
+            st.plotly_chart(fig_mat, width="stretch")
+        else:
+            st.info("Sin datos de material disponibles.")
+
+    st.divider()
+
+    # ── Cumplimiento por grupo de entrega ───────────────────────────
+    st.subheader("Cumplimiento por grupo de entrega")
+    if (
+        df_ef is not None
+        and "GRUPO DE ENTREGA" in df_ef.columns
+        and "CANT. ORDENADA" in df_ef.columns
+        and "CANT. COMPLETA" in df_ef.columns
+    ):
+        grp = (
+            df_ef.groupby("GRUPO DE ENTREGA")
+            .agg(
+                ORDENADO=("CANT. ORDENADA", "sum"),
+                COMPLETO=("CANT. COMPLETA", "sum"),
+            )
+            .reset_index()
+        )
+        grp["PCT"] = (
+            (grp["COMPLETO"] / grp["ORDENADO"].replace(0, pd.NA) * 100)
+            .fillna(0)
+            .round(1)
+        )
+        grp = grp.sort_values("PCT")
+        grp["COLOR"] = grp["PCT"].apply(_hex_pct)
+
+        fig_grp = px.bar(
+            grp,
+            x="GRUPO DE ENTREGA",
+            y="PCT",
+            color="COLOR",
+            color_discrete_map="identity",
+            text="PCT",
+        )
+        fig_grp.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
+        fig_grp.update_layout(
+            yaxis=dict(range=[0, 115], title="Cumplimiento %"),
+            xaxis=dict(tickangle=-35),
+            showlegend=False,
+            margin=dict(t=10, b=80),
+            height=340,
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+        )
+        st.plotly_chart(fig_grp, width="stretch")
+    else:
+        st.info("Sin datos de grupo de entrega.")
+
+    st.divider()
+
+    # ── O.P. Críticas ───────────────────────────────────────────────
+    st.subheader("O.P. críticas — vencidas sin avance")
+
+    df_crit_src = df_ef  # Grupo Entrega Real tiene FECHA TERMINACIÓN y CANT. PENDIENTE
+    if df_crit_src is not None:
+        dc = df_crit_src.copy()
+        fecha_col = next(
+            (
+                c
+                for c in ["FECHA TERMINACIÓN", "FECHA TERMINACION", "FECHA DE ENTREGA"]
+                if c in dc.columns
+            ),
+            None,
+        )
+        if fecha_col:
+            dc[fecha_col] = pd.to_datetime(
+                dc[fecha_col], errors="coerce", format="mixed"
+            )
+            pend_col = "CANT. PENDIENTE" if "CANT. PENDIENTE" in dc.columns else None
+            if pend_col:
+                dc_crit = dc[
+                    (dc[fecha_col] < pd.Timestamp.now().normalize())
+                    & (dc[pend_col] > 0)
+                ]
+                col_op = next(
+                    (c for c in ["O.P. NÚMERO", "O.P. NUMERO"] if c in dc_crit.columns),
+                    None,
+                )
+                cols_show = [
+                    "MARCA",
+                    "REFERENCIA",
+                    "GRUPO DE ENTREGA",
+                    pend_col,
+                    fecha_col,
+                ]
+                if col_op:
+                    cols_show.insert(0, col_op)
+                cols_show = [c for c in cols_show if c in dc_crit.columns]
+                st.dataframe(
+                    dc_crit[cols_show].sort_values(pend_col, ascending=False).head(10),
+                    width="stretch",
+                )
+            else:
+                st.info("Columna CANT. PENDIENTE no encontrada en Grupo Entrega Real.")
+        else:
+            st.info("Columna de fecha de terminación no encontrada.")
+    else:
+        st.info("Sin datos de entregas para calcular O.P. críticas.")
+
+
+===== FILE: /home/zam/code/WILSON/dash/README.md =====
+1. Propósito General
+
+El sistema funciona como una plataforma de gestión de datos que transforma archivos de Excel (generalmente desorganizados o con celdas combinadas) en bases de datos limpias (formato CSV) para generar indicadores clave de desempeño (KPIs).
+2. Estructura de Datos (Directorios)
+
+La aplicación organiza la información en cuatro categorías principales almacenadas en la carpeta data/:
+
+    Grupo Entrega Real: Seguimiento de pedidos y entregas.
+
+    Referencias Pendientes: Listado de productos por completar.
+
+    Unidades cortadas: Registro de la producción inicial.
+
+    WIP (Work In Progress): Trabajo en proceso.
+
+3. Lógica de Procesamiento (ETL y Processor)
+
+Esta es la inteligencia del proyecto. Se encarga de la limpieza de datos a través de los archivos core/etl.py y core/processor.py:
+
+    Normalización de Columnas: Convierte todos los encabezados a mayúsculas, elimina espacios extra, quita tildes y elimina columnas duplicadas o vacías.
+
+    Identificación Automática: Determina si la información pertenece a la marca STOP o YOYO analizando el nombre del archivo subido.
+
+    Limpieza de Texto: Elimina prefijos numéricos comunes en sistemas contables (por ejemplo, transforma "001 - JULIO" en "JULIO").
+
+    Conversión de Tipos: Asegura que las fechas sean objetos de tiempo y que las cantidades sean números enteros para evitar errores en los cálculos.
+
+    Manejo de Excel (Forward Fill): Resuelve el problema de las celdas combinadas en Excel rellenando los valores hacia abajo para que cada fila tenga la información completa de su categoría.
+
+4. Interfaz de Usuario (App Principal)
+
+El archivo app.py gestiona la visualización y la interacción:
+
+    Menú de Navegación: Utiliza una barra lateral para moverse entre el Dashboard general y las vistas detalladas de cada sección.
+
+    Carga de Archivos: Permite subir múltiples archivos Excel simultáneamente. Al procesarlos, los convierte internamente a CSV para optimizar la lectura futura.
+
+    Dashboard Interactivo:
+
+        Indicador de Cumplimiento: Un gráfico de tipo "Gauge" que muestra el porcentaje total de cumplimiento (Unidades Completas vs. Unidades Ordenadas).
+
+        Análisis por Colección: Gráficos de barras que comparan lo ordenado contra lo completado por cada colección.
+
+        Filtros Dinámicos: Permite segmentar la información por Marca, Mes, Colección o Grupo de Entrega.
+
+    Gestión de Críticos: Una tabla automática que detecta las Órdenes de Producción (O.P.) que ya vencieron (según la fecha de terminación) y que aún tienen unidades pendientes.
+
+5. Flujo de Trabajo Típico
+
+    El usuario selecciona una sección (ej. "Unidades cortadas").
+
+    Sube uno o varios archivos Excel extraídos de su sistema de gestión.
+
+    Presiona "Procesar y Guardar", lo cual activa la limpieza y guarda los datos en el servidor local.
+
+    La aplicación actualiza el Dashboard, permitiendo al usuario ver el estado real de la operación y tomar decisiones sobre los pedidos retrasados.
+
+Resumen Técnico
+
+    Backend: Python con Pandas para manipulación de datos y Regex para limpieza de texto.
+
+    Frontend: Streamlit para la interfaz web.
+
+    Visualización: Plotly para gráficos dinámicos y profesionales.
+
+    Almacenamiento: Sistema de archivos local basado en CSV.
+
+
+===== FILE: /home/zam/code/WILSON/dash/app.py =====
+import os
+
+import streamlit as st
+from streamlit_option_menu import option_menu
+
+from sections.dashboard import render_dashboard
+from sections.management import render_section
+from sections.storage import render_storage
+
+DIRS = {
+    "Grupo Entrega Real": "data/group-delivered",
+    "Referencias Pendientes": "data/pending",
+    "Unidades cortadas": "data/cut",
+    "WIP": "data/wip",
+}
+for d in DIRS.values():
+    os.makedirs(d, exist_ok=True)
+
+st.set_page_config(layout="wide", page_title="Dash")
+
+with st.sidebar:
+    # Título fuera del componente
+    st.markdown("# Dash")
+
+    page = option_menu(
+        menu_title=None,  # Elimina la caja de título interna
+        options=[
+            "Dashboard",
+            "Grupo Entrega Real",
+            "Referencias Pendientes",
+            "Unidades cortadas",
+            "WIP",
+            "Gestión de Archivos",
+        ],
+        icons=["chart-bar", "truck", "list-check", "scissors", "gear", "folder2-open"],
+        default_index=0,
+        styles={
+            "container": {
+                "padding": "0!important",
+                "background-color": "transparent",
+                "border": "none",
+            },
+            "icon": {"color": "white", "font-size": "18px"},
+            "nav-link": {
+                "font-size": "14px",
+                "text-align": "left",
+                "margin": "0px",
+                "border-radius": "8px",
+                "--hover-color": "#333",
+            },
+            "nav-link-selected": {"background-color": "#FF4B4B"},
+        },
+    )
+
+if page == "Dashboard":
+    render_dashboard(DIRS)
+elif page == "Gestión de Archivos":
+    render_storage(DIRS)
+else:
+    render_section(page, DIRS)
+
+
