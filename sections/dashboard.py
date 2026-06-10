@@ -246,8 +246,8 @@ def render_dashboard(DIRS):
             and "MARCA" in df_pf.columns
         ):
             src = df_pf
-            val_col = None  # conteo
 
+        val_col = None
         if src is not None:
             if val_col and val_col in src.columns:
                 df_mat = (
